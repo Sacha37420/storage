@@ -1,0 +1,163 @@
+<div class="browser">
+
+  <aside class="ns-sidebar">
+    <section>
+      <h3>Mes fichiers</h3>
+      @if (me(); as u) {
+        <a class="ns-link" [class.active]="namespace() === u.username" (click)="goToNamespace(u.username)">
+          {{ u.username }}
+        </a>
+      }
+    </section>
+
+    <section>
+      <div class="ns-sidebar-head">
+        <h3>Mes partages</h3>
+        <button class="icon-btn" type="button" (click)="creatingShare.set(!creatingShare())" title="Nouveau partage">+</button>
+      </div>
+
+      @if (creatingShare()) {
+        <form class="new-share-form" (ngSubmit)="submitNewShare()">
+          <input
+            [(ngModel)]="newShareName"
+            name="newShareName"
+            placeholder="nom-du-partage"
+            autocomplete="off"
+          />
+          <button class="btn-primary" type="submit">Créer</button>
+        </form>
+        @if (newShareError()) { <p class="field-error">{{ newShareError() }}</p> }
+      }
+
+      @for (s of shares()?.owned ?? []; track s.name) {
+        <a class="ns-link" [class.active]="namespace() === s.name" (click)="goToNamespace(s.name)">{{ s.name }}</a>
+      }
+      @if ((shares()?.owned ?? []).length === 0) {
+        <p class="empty-hint">Aucun partage.</p>
+      }
+    </section>
+
+    <section>
+      <h3>Partagé avec moi</h3>
+      @for (s of shares()?.member_of ?? []; track s.name) {
+        <a class="ns-link" [class.active]="namespace() === s.name" (click)="goToNamespace(s.name)">{{ s.name }}</a>
+      }
+      @if ((shares()?.member_of ?? []).length === 0) {
+        <p class="empty-hint">Rien de partagé avec vous.</p>
+      }
+    </section>
+  </aside>
+
+  <section class="browser-main">
+    <header class="browser-head">
+      <nav class="breadcrumb" aria-label="Chemin">
+        <a (click)="goToBreadcrumb(-1)">{{ namespace() }}</a>
+        @for (seg of breadcrumbSegments(); track $index) {
+          <span class="sep">/</span>
+          <a (click)="goToBreadcrumb($index)">{{ seg }}</a>
+        }
+      </nav>
+
+      @if (isOwnedShare()) {
+        <button class="btn-secondary" type="button" (click)="toggleManageShare()">
+          {{ managingShare() ? 'Fermer' : 'Gérer le partage' }}
+        </button>
+      }
+    </header>
+
+    @if (managingShare() && isOwnedShare()) {
+      <section class="share-manage">
+        <h4>Membres de « {{ namespace() }} »</h4>
+        <ul class="member-list">
+          @for (m of members(); track m.member_email) {
+            <li>
+              <span>{{ m.member_email }}</span>
+              <button class="link-btn" type="button" (click)="removeMember(m.member_email)">Retirer</button>
+            </li>
+          }
+          @if (members().length === 0) {
+            <li class="empty-hint">Aucun membre pour l'instant.</li>
+          }
+        </ul>
+        <form class="add-member-form" (ngSubmit)="submitAddMember()">
+          <input
+            type="email"
+            [(ngModel)]="newMemberEmail"
+            name="newMemberEmail"
+            placeholder="email@exemple.com"
+            required
+            autocomplete="off"
+          />
+          <button class="btn-primary" type="submit">Ajouter</button>
+        </form>
+        @if (memberError()) { <p class="field-error">{{ memberError() }}</p> }
+
+        <button class="btn-danger" type="button" (click)="confirmDeleteShare()">
+          Supprimer ce partage
+        </button>
+      </section>
+    }
+
+    @if (canWrite()) {
+      <div
+        class="dropzone"
+        [class.dragover]="dragOver()"
+        (dragover)="onDragOver($event)"
+        (dragleave)="dragOver.set(false)"
+        (drop)="onDrop($event)"
+      >
+        <label class="upload-btn">
+          Déposer des fichiers ici, ou cliquer pour choisir
+          <input type="file" multiple (change)="onFilePicked($event)" hidden />
+        </label>
+        @if (uploading()) {
+          <span class="upload-progress">Envoi… {{ uploadProgress() }}%</span>
+        }
+      </div>
+    }
+
+    @if (loading()) {
+      <p class="loading">Chargement…</p>
+    } @else if (error()) {
+      <div class="error-card">{{ error() }}</div>
+    } @else {
+      <table class="file-table">
+        <thead>
+          <tr>
+            <th>Nom</th>
+            <th>Taille</th>
+            <th>Modifié</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (f of folders(); track f) {
+            <tr class="folder-row" (click)="openFolder(f)">
+              <td>📁 {{ f }}</td>
+              <td>—</td>
+              <td>—</td>
+              <td></td>
+            </tr>
+          }
+          @for (f of files(); track f.relative_path) {
+            <tr>
+              <td>{{ fileName(f) }}</td>
+              <td>{{ formatSize(f.size) }}</td>
+              <td>{{ f.updated_at | date:'dd/MM/yyyy HH:mm' }}</td>
+              <td class="row-actions">
+                <button class="link-btn" type="button" (click)="download(f)">Télécharger</button>
+                @if (canWrite()) {
+                  <button class="link-btn danger" type="button" (click)="removeFile(f)">Supprimer</button>
+                }
+              </td>
+            </tr>
+          }
+          @if (folders().length === 0 && files().length === 0) {
+            <tr><td colspan="4" class="empty-hint">Dossier vide.</td></tr>
+          }
+        </tbody>
+      </table>
+    }
+  </section>
+
+</div>
