@@ -15,11 +15,15 @@ export interface Me {
 export interface Share {
   name: string;
   owner_username: string;
+  required_groups: string;
   created_at: string;
 }
 
+export type ShareMemberRole = 'read' | 'write';
+
 export interface ShareMember {
   member_email: string;
+  role: ShareMemberRole;
   added_at: string;
 }
 
@@ -73,10 +77,10 @@ export class ApiService {
     return this.http.get<ShareMember[]>(`${this.base}/api/shares/${encodeURIComponent(name)}/members/`);
   }
 
-  addShareMember(name: string, memberEmail: string): Observable<ShareMember> {
+  addShareMember(name: string, memberEmail: string, role: ShareMemberRole = 'read'): Observable<ShareMember> {
     return this.http.post<ShareMember>(
       `${this.base}/api/shares/${encodeURIComponent(name)}/members/`,
-      { member_email: memberEmail },
+      { member_email: memberEmail, role },
     );
   }
 

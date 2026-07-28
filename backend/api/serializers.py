@@ -6,14 +6,14 @@ from .models import Share, ShareMember, StoredFile
 class ShareSerializer(serializers.ModelSerializer):
     class Meta:
         model = Share
-        fields = ['name', 'owner_username', 'created_at']
-        read_only_fields = ['owner_username', 'created_at']
+        fields = ['name', 'owner_username', 'required_groups', 'created_at']
+        read_only_fields = ['owner_username', 'required_groups', 'created_at']
 
 
 class ShareMemberSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShareMember
-        fields = ['member_email', 'added_at']
+        fields = ['member_email', 'role', 'added_at']
         read_only_fields = ['added_at']
 
 

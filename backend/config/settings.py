@@ -87,15 +87,33 @@ KEYCLOAK_CLIENT_ID = config('KEYCLOAK_CLIENT_ID', default='swagger-ui')
 # personne authentifiée sur ce client passe. Renseigné par create-app-client.sh
 # à partir de --require-group.
 KEYCLOAK_REQUIRED_GROUPS = config('KEYCLOAK_REQUIRED_GROUPS', default='')
+# Compte(s) de service : client_id → nom du partage sur lequel ce client a un
+# accès lecture/écriture *sans* utilisateur connecté (ex. worker Celery d'une
+# autre app), séparés par des virgules — "client_id:partage,...". Réutilise le
+# mécanisme <app>-admin/client_credentials déjà en place pour lab-admin/
+# restauration (cf. scripts/create-app-client.sh, .keycloak-service-account-roles) ;
+# voir api.authentication.KeycloakServiceUser. Vide par défaut : aucun compte
+# de service configuré.
+KEYCLOAK_SERVICE_WRITE_SHARES = {}
+for _pair in config('KEYCLOAK_SERVICE_WRITE_SHARES', default='').split(','):
+    _pair = _pair.strip()
+    if not _pair:
+        continue
+    _client, _, _share = _pair.partition(':')
+    if _client.strip() and _share.strip():
+        KEYCLOAK_SERVICE_WRITE_SHARES[_client.strip()] = _share.strip()
+
 # Liste blanche des client_id Keycloak dont les tokens sont acceptés par l'API
 # (claim 'azp'), séparés par des virgules. Par défaut, uniquement ce client :
 # storage. Pour permettre à une autre app du lab d'appeler cette API au nom de
 # ses utilisateurs, ajouter son client_id ici — voir api/authentication.py.
+# Les clients de KEYCLOAK_SERVICE_WRITE_SHARES sont automatiquement inclus :
+# pas besoin de les lister deux fois (évite d'oublier l'un des deux réglages).
 KEYCLOAK_TRUSTED_CLIENTS = {
     c.strip()
     for c in config('KEYCLOAK_TRUSTED_CLIENTS', default=KEYCLOAK_CLIENT_ID).split(',')
     if c.strip()
-}
+} | set(KEYCLOAK_SERVICE_WRITE_SHARES)
 # Prefer building the public issuer from KEYCLOAK_PUBLIC_URL + KEYCLOAK_REALM
 # (so we don't introduce a separate KEYCLOAK_PUBLIC_ISSUER_URI variable).
 KEYCLOAK_PUBLIC_URL = config('KEYCLOAK_PUBLIC_URL', default=None)

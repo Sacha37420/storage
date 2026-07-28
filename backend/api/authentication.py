@@ -12,6 +12,7 @@ class KeycloakUser:
 
     is_authenticated = True
     is_active = True
+    is_service_account = False
 
     def __init__(self, claims: dict) -> None:
         self.email: str = claims.get('email', '')
@@ -19,6 +20,34 @@ class KeycloakUser:
         self.claims = claims
         # Required by some DRF internals
         self.pk = self.email
+
+    def __str__(self) -> str:
+        return self.username
+
+
+class KeycloakServiceUser:
+    """Identité machine (client_credentials, pas d'utilisateur humain derrière).
+
+    Construite pour un azp présent dans settings.KEYCLOAK_SERVICE_WRITE_SHARES —
+    typiquement le compte de service '<app>-admin' d'une autre app du lab (même
+    mécanisme que lab-admin/restauration pour administrer Keycloak, réutilisé
+    ici pour écrire dans storage sans utilisateur connecté, ex. un worker Celery).
+    Porte une seule capacité : lecture/écriture sur le partage `write_share`,
+    résolue par api.permissions.resolve_namespace — jamais de namespace
+    personnel, jamais de claim 'email'/'groups' à vérifier.
+    """
+
+    is_authenticated = True
+    is_active = True
+    is_service_account = True
+
+    def __init__(self, client_id: str, write_share: str) -> None:
+        self.client_id = client_id
+        self.write_share = write_share
+        self.username = f'service:{client_id}'
+        self.email = f'{client_id}@service.local'
+        self.claims: dict = {}
+        self.pk = self.username
 
     def __str__(self) -> str:
         return self.username
@@ -81,10 +110,19 @@ class KeycloakJWTAuthentication(BaseAuthentication):
         # (liste blanche explicite, cf. CLAUDE.md) remplace l'égalité stricte
         # tout en conservant la même propriété de sécurité : 'admin-cli' n'y
         # figure jamais. Voir storage/.env pour l'ajout d'un nouveau client.
-        if claims.get('azp') not in settings.KEYCLOAK_TRUSTED_CLIENTS:
+        azp = claims.get('azp')
+        if azp not in settings.KEYCLOAK_TRUSTED_CLIENTS:
             raise AuthenticationFailed(
-                f"Ce token a été émis par un client non autorisé : '{claims.get('azp')}'."
+                f"Ce token a été émis par un client non autorisé : '{azp}'."
             )
+
+        # Compte de service (client_credentials, cf. KeycloakServiceUser) : pas
+        # d'utilisateur humain, donc pas de claim 'email'/'groups' à exiger — on
+        # retourne immédiatement, avant les contrôles humains ci-dessous et sans
+        # toucher à KnownUser (qui n'a de sens que pour de vrais comptes Keycloak).
+        write_share = settings.KEYCLOAK_SERVICE_WRITE_SHARES.get(azp)
+        if write_share is not None:
+            return KeycloakServiceUser(azp, write_share), token
 
         # Cloisonnement par groupe. KEYCLOAK_REQUIRED_GROUPS vide ⇒ aucun filtre :
         # toute personne authentifiée sur ce client passe.

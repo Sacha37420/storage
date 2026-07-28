@@ -88,7 +88,15 @@ class ShareMembersView(APIView):
         email = (request.data.get('member_email') or '').strip().lower()
         if not email:
             raise DRFValidationError({'member_email': ['Requis.']})
-        member, _ = ShareMember.objects.get_or_create(share=share, member_email=email)
+        role = request.data.get('role', 'read')
+        if role not in ('read', 'write'):
+            raise DRFValidationError({'role': ["Doit être 'read' ou 'write'."]})
+        member, created = ShareMember.objects.get_or_create(
+            share=share, member_email=email, defaults={'role': role},
+        )
+        if not created and member.role != role:
+            member.role = role
+            member.save(update_fields=['role'])
         return Response(ShareMemberSerializer(member).data, status=status.HTTP_201_CREATED)
 
 

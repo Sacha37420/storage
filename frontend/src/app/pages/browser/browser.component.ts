@@ -6,7 +6,7 @@ import { HttpErrorResponse, HttpEventType } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { catchError, of } from 'rxjs';
 
-import { ApiService, Me, Share, SharesResponse, ShareMember, StoredFile } from '../../core/api.service';
+import { ApiService, Me, Share, SharesResponse, ShareMember, ShareMemberRole, StoredFile } from '../../core/api.service';
 
 function extractError(err: unknown): string {
   if (err instanceof HttpErrorResponse) {
@@ -67,6 +67,7 @@ export class BrowserComponent {
   managingShare = signal(false);
   members = signal<ShareMember[]>([]);
   newMemberEmail = '';
+  newMemberWriteAccess = false;
   memberError = signal<string | null>(null);
 
   uploading = signal(false);
@@ -113,6 +114,12 @@ export class BrowserComponent {
   isOwnedShare = computed<boolean>(() => {
     const ns = this.namespace();
     return (this.shares()?.owned ?? []).some(s => s.name === ns);
+  });
+
+  currentShare = computed<Share | null>(() => {
+    const ns = this.namespace();
+    const all = this.shares();
+    return all?.owned.find(s => s.name === ns) ?? all?.member_of.find(s => s.name === ns) ?? null;
   });
 
   constructor() {
@@ -214,10 +221,12 @@ export class BrowserComponent {
     const email = this.newMemberEmail.trim().toLowerCase();
     if (!email) return;
     this.memberError.set(null);
-    this.api.addShareMember(this.namespace(), email).subscribe({
+    const role: ShareMemberRole = this.newMemberWriteAccess ? 'write' : 'read';
+    this.api.addShareMember(this.namespace(), email, role).subscribe({
       next: member => {
-        this.members.update(list => [...list, member]);
+        this.members.update(list => [...list.filter(m => m.member_email !== member.member_email), member]);
         this.newMemberEmail = '';
+        this.newMemberWriteAccess = false;
       },
       error: err => this.memberError.set(extractError(err)),
     });

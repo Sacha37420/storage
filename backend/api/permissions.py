@@ -15,11 +15,24 @@ class NamespaceAccess:
 def resolve_namespace(namespace: str, user) -> NamespaceAccess:
     """Résout les droits de `user` sur `namespace`.
 
-    Deux cas : namespace personnel (== son propre username → lecture/écriture),
-    ou partage nommé `namespace` (propriétaire → lecture/écriture, membre →
-    lecture seule, ni l'un ni l'autre → 403). Un namespace qui n'est ni l'un ni
-    l'autre → 404.
+    Compte de service (cf. KeycloakServiceUser) : lecture/écriture uniquement
+    sur le partage précis configuré pour lui (write_share) — court-circuite
+    tout le reste, aucune notion de namespace personnel pour une identité
+    machine.
+
+    Compte humain, trois cas : namespace personnel (== son propre username →
+    lecture/écriture) ; partage nommé `namespace` dont il est propriétaire
+    (→ lecture/écriture) ou dont le groupe Keycloak requis (`required_groups`)
+    croise ses groupes (→ lecture/écriture, même statut que le propriétaire) ;
+    ou membre explicite (`ShareMember`, → lecture ou écriture selon son rôle).
+    Ni l'un ni l'autre → 403. Un namespace qui ne correspond à rien → 404.
     """
+    if getattr(user, 'is_service_account', False):
+        if namespace == user.write_share:
+            share = Share.objects.filter(name=namespace).first()
+            return NamespaceAccess(namespace=namespace, can_write=True, share=share)
+        raise PermissionDenied(f"Ce compte de service n'a pas accès à '{namespace}'.")
+
     if namespace == user.username:
         return NamespaceAccess(namespace=namespace, can_write=True, share=None)
 
@@ -31,8 +44,13 @@ def resolve_namespace(namespace: str, user) -> NamespaceAccess:
     if share.owner_username == user.username:
         return NamespaceAccess(namespace=namespace, can_write=True, share=share)
 
-    if ShareMember.objects.filter(share=share, member_email=user.email).exists():
-        return NamespaceAccess(namespace=namespace, can_write=False, share=share)
+    required = {g.strip() for g in share.required_groups.split(',') if g.strip()}
+    if required and required & set(user.claims.get('groups') or []):
+        return NamespaceAccess(namespace=namespace, can_write=True, share=share)
+
+    member = ShareMember.objects.filter(share=share, member_email=user.email).first()
+    if member:
+        return NamespaceAccess(namespace=namespace, can_write=(member.role == 'write'), share=share)
 
     raise PermissionDenied(f"Accès refusé à l'espace '{namespace}'.")
 

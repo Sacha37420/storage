@@ -27,7 +27,8 @@ class KnownUser(models.Model):
 
 class Share(models.Model):
     """Partage nommé : espace de fichiers appartenant à un utilisateur, qui en
-    contrôle l'accès en lecture pour d'autres comptes (par email).
+    contrôle l'accès pour d'autres comptes (par email, cf. ShareMember) et/ou
+    pour tout un groupe Keycloak (cf. required_groups).
 
     Le nom sert de namespace dans l'adressage des fichiers (<namespace>/<chemin>)
     et est immuable — pas d'endpoint de renommage, ça romprait tout lien déjà
@@ -38,6 +39,14 @@ class Share(models.Model):
         max_length=64, primary_key=True, validators=[validate_namespace_slug],
     )
     owner_username = models.CharField(max_length=255, db_index=True)
+    # CSV, même convention que settings.KEYCLOAK_REQUIRED_GROUPS. Vide (défaut) :
+    # comportement inchangé, seuls owner_username + ShareMember donnent accès.
+    # Non vide : tout compte dont le claim 'groups' du token croise un de ces
+    # groupes a accès en lecture/écriture (même statut que le propriétaire),
+    # sans ligne ShareMember à maintenir — la source de vérité reste Keycloak/
+    # LDAP, pas une liste dupliquée ici. Hors self-service (pas exposé par
+    # POST /api/shares/), provisionné via `manage.py create_group_share`.
+    required_groups = models.CharField(max_length=255, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -49,10 +58,14 @@ class Share(models.Model):
 
 
 class ShareMember(models.Model):
-    """Compte autorisé à consulter (lecture seule) un partage dont il n'est pas propriétaire."""
+    """Compte autorisé à accéder à un partage dont il n'est pas propriétaire —
+    en lecture seule (role='read', défaut) ou aussi en écriture (role='write')."""
+
+    ROLE_CHOICES = [('read', 'read'), ('write', 'write')]
 
     share = models.ForeignKey(Share, on_delete=models.CASCADE, related_name='members')
     member_email = models.EmailField()
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='read')
     added_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
