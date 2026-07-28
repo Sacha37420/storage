@@ -15,10 +15,13 @@ class NamespaceAccess:
 def resolve_namespace(namespace: str, user) -> NamespaceAccess:
     """Résout les droits de `user` sur `namespace`.
 
-    Compte de service (cf. KeycloakServiceUser) : lecture/écriture uniquement
-    sur le partage précis configuré pour lui (write_share) — court-circuite
-    tout le reste, aucune notion de namespace personnel pour une identité
-    machine.
+    Compte de service (cf. KeycloakServiceUser) : lecture/écriture sur le
+    partage précis configuré pour lui (write_share, doit déjà exister — cf.
+    create_group_share) et/ou sur tout partage dont le nom commence par son
+    write_prefix (créé automatiquement au premier usage : l'autorisation fine
+    est déjà décidée par l'app appelante, storage ne fait que lui faire
+    confiance sur ce préfixe) — court-circuite tout le reste, aucune notion de
+    namespace personnel pour une identité machine.
 
     Compte humain, trois cas : namespace personnel (== son propre username →
     lecture/écriture) ; partage nommé `namespace` dont il est propriétaire
@@ -30,6 +33,11 @@ def resolve_namespace(namespace: str, user) -> NamespaceAccess:
     if getattr(user, 'is_service_account', False):
         if namespace == user.write_share:
             share = Share.objects.filter(name=namespace).first()
+            return NamespaceAccess(namespace=namespace, can_write=True, share=share)
+        if user.write_prefix and namespace.startswith(user.write_prefix):
+            share, _ = Share.objects.get_or_create(
+                name=namespace, defaults={'owner_username': user.username},
+            )
             return NamespaceAccess(namespace=namespace, can_write=True, share=share)
         raise PermissionDenied(f"Ce compte de service n'a pas accès à '{namespace}'.")
 

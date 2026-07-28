@@ -28,12 +28,15 @@ class KeycloakUser:
 class KeycloakServiceUser:
     """Identité machine (client_credentials, pas d'utilisateur humain derrière).
 
-    Construite pour un azp présent dans settings.KEYCLOAK_SERVICE_WRITE_SHARES —
-    typiquement le compte de service '<app>-admin' d'une autre app du lab (même
-    mécanisme que lab-admin/restauration pour administrer Keycloak, réutilisé
-    ici pour écrire dans storage sans utilisateur connecté, ex. un worker Celery).
-    Porte une seule capacité : lecture/écriture sur le partage `write_share`,
-    résolue par api.permissions.resolve_namespace — jamais de namespace
+    Construite pour un azp présent dans settings.KEYCLOAK_SERVICE_WRITE_SHARES
+    et/ou KEYCLOAK_SERVICE_WRITE_PREFIXES — typiquement le compte de service
+    '<app>-admin' d'une autre app du lab (même mécanisme que lab-admin/
+    restauration pour administrer Keycloak, réutilisé ici pour écrire dans
+    storage sans utilisateur connecté, ex. un worker Celery ou une décision
+    d'autorisation déjà prise côté app appelante). Porte une ou deux
+    capacités : lecture/écriture sur le partage exact `write_share` et/ou sur
+    tout partage dont le nom commence par `write_prefix` (avec création
+    automatique, cf. api.permissions.resolve_namespace) — jamais de namespace
     personnel, jamais de claim 'email'/'groups' à vérifier.
     """
 
@@ -41,9 +44,10 @@ class KeycloakServiceUser:
     is_active = True
     is_service_account = True
 
-    def __init__(self, client_id: str, write_share: str) -> None:
+    def __init__(self, client_id: str, write_share: str | None, write_prefix: str | None) -> None:
         self.client_id = client_id
         self.write_share = write_share
+        self.write_prefix = write_prefix
         self.username = f'service:{client_id}'
         self.email = f'{client_id}@service.local'
         self.claims: dict = {}
@@ -121,8 +125,9 @@ class KeycloakJWTAuthentication(BaseAuthentication):
         # retourne immédiatement, avant les contrôles humains ci-dessous et sans
         # toucher à KnownUser (qui n'a de sens que pour de vrais comptes Keycloak).
         write_share = settings.KEYCLOAK_SERVICE_WRITE_SHARES.get(azp)
-        if write_share is not None:
-            return KeycloakServiceUser(azp, write_share), token
+        write_prefix = settings.KEYCLOAK_SERVICE_WRITE_PREFIXES.get(azp)
+        if write_share is not None or write_prefix is not None:
+            return KeycloakServiceUser(azp, write_share, write_prefix), token
 
         # Cloisonnement par groupe. KEYCLOAK_REQUIRED_GROUPS vide ⇒ aucun filtre :
         # toute personne authentifiée sur ce client passe.

@@ -103,17 +103,36 @@ for _pair in config('KEYCLOAK_SERVICE_WRITE_SHARES', default='').split(','):
     if _client.strip() and _share.strip():
         KEYCLOAK_SERVICE_WRITE_SHARES[_client.strip()] = _share.strip()
 
+# Variante préfixe : client_id → préfixe de partage sur lequel ce client a un
+# accès lecture/écriture, avec création automatique du partage au premier
+# usage (get_or_create dans api.permissions.resolve_namespace). Pour une app
+# qui a besoin de PLUSIEURS partages dynamiques, un par sous-ressource (ex.
+# conciergerie : un partage par Bien, 'conciergerie-bien-<id>', ensemble de
+# co-propriétaires différent et changeant par Bien — l'autorisation fine reste
+# entièrement décidée par l'app appelante, storage ne fait que lui faire
+# confiance sur ce préfixe). Contrairement à KEYCLOAK_SERVICE_WRITE_SHARES, le
+# partage n'a pas besoin d'exister au préalable (pas de create_group_share à
+# lancer à chaque nouvelle sous-ressource).
+KEYCLOAK_SERVICE_WRITE_PREFIXES = {}
+for _pair in config('KEYCLOAK_SERVICE_WRITE_PREFIXES', default='').split(','):
+    _pair = _pair.strip()
+    if not _pair:
+        continue
+    _client, _, _prefix = _pair.partition(':')
+    if _client.strip() and _prefix.strip():
+        KEYCLOAK_SERVICE_WRITE_PREFIXES[_client.strip()] = _prefix.strip()
+
 # Liste blanche des client_id Keycloak dont les tokens sont acceptés par l'API
 # (claim 'azp'), séparés par des virgules. Par défaut, uniquement ce client :
 # storage. Pour permettre à une autre app du lab d'appeler cette API au nom de
 # ses utilisateurs, ajouter son client_id ici — voir api/authentication.py.
-# Les clients de KEYCLOAK_SERVICE_WRITE_SHARES sont automatiquement inclus :
-# pas besoin de les lister deux fois (évite d'oublier l'un des deux réglages).
+# Les clients de KEYCLOAK_SERVICE_WRITE_SHARES/_PREFIXES sont automatiquement
+# inclus : pas besoin de les lister deux fois (évite d'oublier un des réglages).
 KEYCLOAK_TRUSTED_CLIENTS = {
     c.strip()
     for c in config('KEYCLOAK_TRUSTED_CLIENTS', default=KEYCLOAK_CLIENT_ID).split(',')
     if c.strip()
-} | set(KEYCLOAK_SERVICE_WRITE_SHARES)
+} | set(KEYCLOAK_SERVICE_WRITE_SHARES) | set(KEYCLOAK_SERVICE_WRITE_PREFIXES)
 # Prefer building the public issuer from KEYCLOAK_PUBLIC_URL + KEYCLOAK_REALM
 # (so we don't introduce a separate KEYCLOAK_PUBLIC_ISSUER_URI variable).
 KEYCLOAK_PUBLIC_URL = config('KEYCLOAK_PUBLIC_URL', default=None)
