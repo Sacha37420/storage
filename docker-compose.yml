@@ -9,13 +9,15 @@ networks:
     name: dev-net
 
 volumes:
-  # Fichiers déposés par les utilisateurs (blobs, cf. api/models.py). Déclaré
-  # 'external' pour survivre à `clean2.sh storage` (down --volumes) — à créer
-  # une fois manuellement avant le premier déploiement :
-  #   docker volume create storage-media
+  # Fichiers déposés par les utilisateurs (blobs, cf. api/models.py). Possédé
+  # par infra/docker-compose.yml — comme dev-net ci-dessus — pas par cette app :
+  # storage est le point d'entrée unique (API) du stockage de fichiers partagé
+  # du lab, au même titre que postgres/postgis pour les bases (voir CLAUDE.md,
+  # section « Fichiers rasters / médias »). Créé automatiquement au premier
+  # `docker compose up` de infra, jamais par cette app.
   storage-media:
     external: true
-    name: storage_storage-media
+    name: infra_storage-media
 
 services:
 
