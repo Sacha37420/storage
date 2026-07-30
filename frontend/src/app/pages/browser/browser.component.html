@@ -1,5 +1,36 @@
 <div class="browser">
 
+  <!-- Rendu récursif d'un nœud de l'arborescence des partages (GET /api/shares/
+       → champ `tree`). Un nœud accessible=false n'est qu'un conteneur affiché
+       pour naviguer jusqu'à un descendant réellement partagé — non cliquable
+       pour ouvrir son contenu (le backend le refuserait de toute façon),
+       seuls ses enfants pertinents sont listés (jamais ses voisins). -->
+  <ng-template #treeNodeTpl let-node>
+    <div class="tree-node">
+      @if (node.accessible) {
+        <a class="ns-link tree-link" [class.active]="namespace() === node.name" (click)="goToNamespace(node.name)">
+          {{ node.name }}
+          @if (node.access === 'member') {
+            <span class="role-badge" [class.write]="node.can_write">{{ node.can_write ? 'écriture' : 'lecture' }}</span>
+          } @else if (node.access === 'group') {
+            <span class="role-badge write">groupe</span>
+          }
+        </a>
+      } @else {
+        <span class="ns-link tree-link inaccessible" title="Non accessible directement — appartient à {{ node.owner_username }}, navigable seulement pour atteindre un sous-partage">
+          🔒 {{ node.name }}
+        </span>
+      }
+      @if (node.children?.length) {
+        <div class="tree-children">
+          @for (child of node.children; track child.name) {
+            <ng-container *ngTemplateOutlet="treeNodeTpl; context: { $implicit: child }"></ng-container>
+          }
+        </div>
+      }
+    </div>
+  </ng-template>
+
   <aside class="ns-sidebar">
     <section>
       <h3>Mes fichiers</h3>
@@ -12,38 +43,38 @@
 
     <section>
       <div class="ns-sidebar-head">
-        <h3>Mes partages</h3>
+        <h3>Partages</h3>
         <button class="icon-btn" type="button" (click)="creatingShare.set(!creatingShare())" title="Nouveau partage">+</button>
       </div>
 
       @if (creatingShare()) {
-        <form class="new-share-form" (ngSubmit)="submitNewShare()">
+        <form class="new-share-form new-share-form-stacked" (ngSubmit)="submitNewShare()">
           <input
             [(ngModel)]="newShareName"
             name="newShareName"
             placeholder="nom-du-partage"
             autocomplete="off"
           />
+          <select [(ngModel)]="newShareParent" name="newShareParent">
+            <option value="">— aucun parent (racine) —</option>
+            @for (s of ownedShareOptions(); track s.name) {
+              <option [value]="s.name">sous {{ s.name }}</option>
+            }
+          </select>
           <button class="btn-primary" type="submit">Créer</button>
         </form>
         @if (newShareError()) { <p class="field-error">{{ newShareError() }}</p> }
       }
 
-      @for (s of shares()?.owned ?? []; track s.name) {
-        <a class="ns-link" [class.active]="namespace() === s.name" (click)="goToNamespace(s.name)">{{ s.name }}</a>
+      <!-- Arborescence complète : mes partages + ceux dont je suis membre,
+           PLUS les partages-conteneurs auxquels je n'ai pas accès direct mais
+           qui mènent à un partage qui m'est accessible plus profondément
+           (verrouillés 🔒, cf. api/discovery.py côté backend). -->
+      @for (root of shares()?.tree ?? []; track root.name) {
+        <ng-container *ngTemplateOutlet="treeNodeTpl; context: { $implicit: root }"></ng-container>
       }
-      @if ((shares()?.owned ?? []).length === 0) {
-        <p class="empty-hint">Aucun partage.</p>
-      }
-    </section>
-
-    <section>
-      <h3>Partagé avec moi</h3>
-      @for (s of shares()?.member_of ?? []; track s.name) {
-        <a class="ns-link" [class.active]="namespace() === s.name" (click)="goToNamespace(s.name)">{{ s.name }}</a>
-      }
-      @if ((shares()?.member_of ?? []).length === 0) {
-        <p class="empty-hint">Rien de partagé avec vous.</p>
+      @if ((shares()?.tree ?? []).length === 0) {
+        <p class="empty-hint">Aucun partage accessible.</p>
       }
     </section>
   </aside>
@@ -74,6 +105,33 @@
             Partagé automatiquement (lecture/écriture) avec le groupe :
             <strong>{{ currentShare()!.required_groups }}</strong> — géré via Keycloak, pas ici.
           </p>
+        }
+
+        <div class="parent-row">
+          <span>
+            Emplacement :
+            @if (currentShare()?.parent) {
+              <strong>sous « {{ currentShare()!.parent }} »</strong>
+            } @else {
+              <strong>racine</strong>
+            }
+          </span>
+          <button class="link-btn" type="button" (click)="toggleMoveShare()">
+            {{ movingShare() ? 'Annuler' : 'Déplacer…' }}
+          </button>
+        </div>
+
+        @if (movingShare()) {
+          <form class="new-share-form" (ngSubmit)="submitMoveShare()">
+            <select [(ngModel)]="newParentName" name="newParentName">
+              <option value="">— aucun parent (racine) —</option>
+              @for (s of ownedShareOptions(namespace()); track s.name) {
+                <option [value]="s.name">sous {{ s.name }}</option>
+              }
+            </select>
+            <button class="btn-primary" type="submit">Valider</button>
+          </form>
+          @if (moveShareError()) { <p class="field-error">{{ moveShareError() }}</p> }
         }
 
         <ul class="member-list">

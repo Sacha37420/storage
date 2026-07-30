@@ -57,6 +57,49 @@
   padding: var(--space-1) var(--space-3);
 }
 
+/* ── Arborescence de partages ────────────────────────────────────────── */
+
+.tree-node {
+  display: flex;
+  flex-direction: column;
+}
+
+.tree-children {
+  display: flex;
+  flex-direction: column;
+  margin-left: var(--space-4);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--border);
+}
+
+.tree-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ns-link.inaccessible {
+  cursor: default;
+  color: var(--text-mute);
+  font-style: italic;
+
+  &:hover { background: none; }
+}
+
+.new-share-form select {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+.new-share-form-stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -200,6 +243,17 @@
   margin-bottom: var(--space-4);
 
   h4 { margin-bottom: var(--space-3); }
+}
+
+.parent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--text-sm);
+  color: var(--text-mute);
+  margin-bottom: var(--space-3);
+
+  strong { color: var(--text); font-weight: 600; }
 }
 
 .member-list {

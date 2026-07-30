@@ -9,8 +9,9 @@ from rest_framework.exceptions import NotFound, ValidationError as DRFValidation
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .discovery import build_share_forest
 from .models import KnownUser, Share, ShareMember, StoredFile
-from .permissions import get_owned_share, require_write, resolve_namespace
+from .permissions import get_owned_share, require_write, resolve_namespace, validate_new_parent
 from .serializers import ShareMemberSerializer, ShareSerializer, StoredFileSerializer
 from .validators import validate_namespace_slug, validate_relative_path
 
@@ -28,8 +29,16 @@ class MeView(APIView):
 
 class ShareListCreateView(APIView):
     """
-    GET  /api/shares/ — partages dont je suis propriétaire + dont je suis membre.
-    POST /api/shares/ — {name} → crée un partage dont je deviens propriétaire.
+    GET  /api/shares/ — partages dont je suis propriétaire + dont je suis
+         membre (comportement historique, conservé tel quel), PLUS `tree` :
+         l'arborescence complète des partages qui me sont visibles — les
+         miens/ceux dont je suis membre, et les ancêtres nécessaires pour
+         naviguer jusqu'à eux (accessible=False, détails minimaux — voir
+         api/discovery.py pour la décision de sécurité documentée).
+    POST /api/shares/ — {name, parent?} → crée un partage dont je deviens
+         propriétaire, optionnellement rattaché sous un partage que je
+         possède déjà (voir api.permissions.validate_new_parent : le parent
+         doit m'appartenir, self-service oblige).
     """
 
     def get(self, request):
@@ -41,6 +50,7 @@ class ShareListCreateView(APIView):
         return Response({
             'owned': ShareSerializer(owned, many=True).data,
             'member_of': ShareSerializer(member_of, many=True).data,
+            'tree': build_share_forest(request.user),
         })
 
     def post(self, request):
@@ -57,19 +67,53 @@ class ShareListCreateView(APIView):
             raise DRFValidationError({'name': ["Ce nom est déjà utilisé comme identifiant de compte."]})
 
         share = Share(name=name, owner_username=request.user.username)
+
+        parent_name = (request.data.get('parent') or '').strip().lower()
+        if parent_name:
+            share.parent = validate_new_parent(share, parent_name, enforce_same_owner=True)
+
         try:
             share.full_clean()
             share.save()
+        except DjangoValidationError as exc:
+            # full_clean() valide l'unicité de `name` en base AVANT le save() —
+            # une collision est donc levée ici, pas par l'IntegrityError ci-dessous
+            # (qui ne couvre plus qu'une éventuelle course concurrentielle).
+            raise DRFValidationError(getattr(exc, 'message_dict', {'name': exc.messages}))
         except IntegrityError:
             raise DRFValidationError({'name': ['Ce nom de partage est déjà pris.']})
         return Response(ShareSerializer(share).data, status=status.HTTP_201_CREATED)
 
 
 class ShareDetailView(APIView):
-    """DELETE /api/shares/<name>/ — propriétaire uniquement, cascade sur les fichiers du partage."""
+    """
+    DELETE /api/shares/<name>/ — propriétaire uniquement, cascade sur les
+           fichiers du partage. Refuse (400) s'il reste des enfants — voir
+           Share.parent (on_delete=PROTECT) : il faut les détacher ou les
+           supprimer explicitement d'abord, jamais de suppression en cascade
+           silencieuse d'un sous-partage qui peut appartenir à quelqu'un
+           d'autre.
+    PATCH  /api/shares/<name>/ — {parent} → rattache (nom d'un partage que je
+           possède déjà) ou détache (null/"") ce partage dans la hiérarchie.
+           Propriétaire uniquement ; voir api.permissions.validate_new_parent
+           pour les contrôles (existence, anti-cycle, même-propriétaire).
+    """
+
+    def patch(self, request, name):
+        share = get_owned_share(request.user, name)
+        if 'parent' not in request.data:
+            raise DRFValidationError({'parent': ['Requis (nom de partage, ou null/"" pour détacher).']})
+        parent_name = request.data.get('parent')
+        share.parent = validate_new_parent(share, (parent_name or '').strip().lower(), enforce_same_owner=True)
+        share.save(update_fields=['parent'])
+        return Response(ShareSerializer(share).data)
 
     def delete(self, request, name):
         share = get_owned_share(request.user, name)
+        if share.children.exists():
+            raise DRFValidationError({
+                'detail': ["Ce partage a des enfants : détachez-les ou supprimez-les d'abord."],
+            })
         for stored in share.files.all():
             stored.content.delete(save=False)
         share.delete()

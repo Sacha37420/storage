@@ -16,10 +16,13 @@ export interface Share {
   name: string;
   owner_username: string;
   required_groups: string;
+  /** Nom du partage parent, ou null s'il est à la racine de la hiérarchie. */
+  parent: string | null;
   created_at: string;
 }
 
 export type ShareMemberRole = 'read' | 'write';
+export type ShareAccessReason = 'owner' | 'group' | 'member';
 
 export interface ShareMember {
   member_email: string;
@@ -27,9 +30,31 @@ export interface ShareMember {
   added_at: string;
 }
 
+/**
+ * Nœud de l'arborescence renvoyée par GET /api/shares/ (champ `tree`).
+ *
+ * `accessible = false` signifie : ce partage n'est listé que comme
+ * conteneur, pour naviguer jusqu'à un descendant auquel on a réellement
+ * accès (cf. api/discovery.py côté backend, décision de sécurité
+ * documentée) — aucun champ au-delà de name/owner_username/children n'est
+ * renvoyé pour lui, et tenter d'y accéder (GET /api/files/<name>/) échoue
+ * en 403 (le backend n'accorde jamais de droit via la hiérarchie).
+ */
+export interface ShareTreeNode {
+  name: string;
+  owner_username: string;
+  accessible: boolean;
+  access?: ShareAccessReason;
+  can_write?: boolean;
+  required_groups?: string;
+  created_at?: string;
+  children: ShareTreeNode[];
+}
+
 export interface SharesResponse {
   owned: Share[];
   member_of: Share[];
+  tree: ShareTreeNode[];
 }
 
 export interface StoredFile {
@@ -65,12 +90,22 @@ export class ApiService {
     return this.http.get<SharesResponse>(`${this.base}/api/shares/`);
   }
 
-  createShare(name: string): Observable<Share> {
-    return this.http.post<Share>(`${this.base}/api/shares/`, { name });
+  createShare(name: string, parent?: string | null): Observable<Share> {
+    return this.http.post<Share>(`${this.base}/api/shares/`, { name, parent: parent || undefined });
   }
 
   deleteShare(name: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/api/shares/${encodeURIComponent(name)}/`);
+  }
+
+  /** Rattache (nom d'un partage possédé) ou détache (null) un partage dans
+   * la hiérarchie. Propriétaire uniquement ; le backend vérifie que le
+   * nouveau parent appartient au même propriétaire et qu'aucun cycle n'est créé. */
+  setShareParent(name: string, parent: string | null): Observable<Share> {
+    return this.http.patch<Share>(
+      `${this.base}/api/shares/${encodeURIComponent(name)}/`,
+      { parent: parent ?? '' },
+    );
   }
 
   getShareMembers(name: string): Observable<ShareMember[]> {

@@ -47,6 +47,43 @@ class Share(models.Model):
     # LDAP, pas une liste dupliquée ici. Hors self-service (pas exposé par
     # POST /api/shares/), provisionné via `manage.py create_group_share`.
     required_groups = models.CharField(max_length=255, blank=True, default='')
+    # Hiérarchie de partages : PURE ORGANISATION, aucun héritage de droits.
+    # api.permissions.resolve_namespace (la seule fonction qui décide d'un
+    # accès direct) ignore totalement ce champ et continue de résoudre
+    # exactement le partage demandé par son nom, comme avant — un enfant
+    # n'hérite jamais des droits de son parent, ses propres required_groups/
+    # ShareMember priment complètement. `parent` ne sert qu'à la découverte
+    # (api/discovery.py) : remonter la chaîne de conteneurs jusqu'à un
+    # partage profond auquel on a un accès direct, pour naviguer dans l'UI —
+    # sans jamais exposer le contenu (fichiers, membres, sous-partages) d'un
+    # ancêtre auquel on n'a pas soi-même un accès direct (voir docstring de
+    # build_share_forest).
+    #
+    # Contrainte de même-propriétaire : imposée en dehors du modèle (dans les
+    # vues, cf. ShareDetailView.patch et api.permissions.validate_new_parent)
+    # plutôt qu'ici, parce qu'un CheckConstraint ne peut pas comparer deux
+    # lignes différentes de la même table. En self-service, le parent DOIT
+    # appartenir au même owner_username que l'enfant — sinon n'importe qui
+    # pourrait accrocher son partage sous l'arbre d'un autre compte sans son
+    # accord, ce qui laisserait croire à une affiliation qui n'existe pas. La
+    # commande d'administration `manage.py set_share_parent` peut déroger à
+    # cette règle (même niveau de confiance qu'un accès manage.py, à l'image
+    # de `create_group_share` qui contourne déjà le self-service pour
+    # required_groups) — c'est le mécanisme prévu pour rattacher a posteriori
+    # les partages plats créés par les chantiers App (voir le commentaire de
+    # tête de cette commande).
+    #
+    # on_delete=PROTECT (et non CASCADE ni SET_NULL) : supprimer un partage
+    # qui a encore des enfants serait soit une perte de données en cascade
+    # potentiellement chez un tiers (CASCADE), soit une restructuration
+    # silencieuse de l'arbre que personne n'a demandée (SET_NULL, l'enfant
+    # réapparaît à la racine). PROTECT force un choix explicite : détacher ou
+    # supprimer les enfants d'abord (voir ShareDetailView.delete, qui vérifie
+    # `share.children.exists()` en amont pour renvoyer une erreur claire
+    # plutôt que de laisser remonter l'exception Django).
+    parent = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.PROTECT, related_name='children',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

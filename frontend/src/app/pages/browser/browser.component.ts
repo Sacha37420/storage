@@ -1,4 +1,4 @@
-import { DatePipe } from '@angular/common';
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -6,7 +6,7 @@ import { HttpErrorResponse, HttpEventType } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { catchError, of } from 'rxjs';
 
-import { ApiService, Me, Share, SharesResponse, ShareMember, ShareMemberRole, StoredFile } from '../../core/api.service';
+import { ApiService, Me, Share, SharesResponse, ShareMember, ShareMemberRole, ShareTreeNode, StoredFile } from '../../core/api.service';
 
 function extractError(err: unknown): string {
   if (err instanceof HttpErrorResponse) {
@@ -38,7 +38,7 @@ function formatSize(bytes: number): string {
 @Component({
   selector: 'app-browser',
   standalone: true,
-  imports: [DatePipe, FormsModule],
+  imports: [DatePipe, FormsModule, NgTemplateOutlet],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.scss',
 })
@@ -62,6 +62,7 @@ export class BrowserComponent {
 
   creatingShare = signal(false);
   newShareName = '';
+  newShareParent = ''; // '' = racine ; nom d'un partage possédé sinon
   newShareError = signal<string | null>(null);
 
   managingShare = signal(false);
@@ -69,6 +70,10 @@ export class BrowserComponent {
   newMemberEmail = '';
   newMemberWriteAccess = false;
   memberError = signal<string | null>(null);
+
+  movingShare = signal(false);
+  newParentName = '';
+  moveShareError = signal<string | null>(null);
 
   uploading = signal(false);
   uploadProgress = signal(0);
@@ -196,10 +201,14 @@ export class BrowserComponent {
     const name = this.newShareName.trim().toLowerCase();
     if (!name) return;
     this.newShareError.set(null);
-    this.api.createShare(name).subscribe({
+    this.api.createShare(name, this.newShareParent || null).subscribe({
       next: share => {
-        this.shares.update(s => s && { ...s, owned: [...s.owned, share] });
+        // refreshShares() plutôt qu'un patch local : la création peut changer
+        // la forme de l'arbre (nouveau nœud imbriqué sous newShareParent),
+        // pas seulement la liste plate `owned`.
+        this.refreshShares();
         this.newShareName = '';
+        this.newShareParent = '';
         this.creatingShare.set(false);
         this.goToNamespace(share.name);
       },
@@ -210,7 +219,29 @@ export class BrowserComponent {
   toggleManageShare(): void {
     const next = !this.managingShare();
     this.managingShare.set(next);
+    this.movingShare.set(false);
+    this.moveShareError.set(null);
     if (next) this.loadMembers();
+  }
+
+  toggleMoveShare(): void {
+    const next = !this.movingShare();
+    this.movingShare.set(next);
+    this.moveShareError.set(null);
+    if (next) this.newParentName = this.currentShare()?.parent ?? '';
+  }
+
+  submitMoveShare(): void {
+    const name = this.namespace();
+    const parent = this.newParentName.trim().toLowerCase() || null;
+    this.moveShareError.set(null);
+    this.api.setShareParent(name, parent).subscribe({
+      next: () => {
+        this.refreshShares();
+        this.movingShare.set(false);
+      },
+      error: err => this.moveShareError.set(extractError(err)),
+    });
   }
 
   private loadMembers(): void {
@@ -241,10 +272,39 @@ export class BrowserComponent {
   confirmDeleteShare(): void {
     const name = this.namespace();
     if (!confirm(`Supprimer définitivement le partage « ${name} » et tous ses fichiers ?`)) return;
-    this.api.deleteShare(name).subscribe(() => {
-      this.shares.update(s => s && { ...s, owned: s.owned.filter(sh => sh.name !== name) });
-      this.goToNamespace(this.me()!.username);
+    this.api.deleteShare(name).subscribe({
+      next: () => {
+        this.refreshShares();
+        this.goToNamespace(this.me()!.username);
+      },
+      // Le backend refuse (400) tant que le partage a des enfants (on_delete=PROTECT,
+      // cf. Share.parent côté backend) — message affiché tel quel, pas de local patch.
+      error: err => this.error.set(extractError(err)),
     });
+  }
+
+  /** Aplatit l'arbre pour construire la liste d'options du <select> parent —
+   * seuls MES partages peuvent servir de parent en self-service (cf. backend,
+   * même-propriétaire imposé), et un partage ne peut pas se rattacher sous
+   * lui-même ni sous un de ses propres descendants (le backend le refuserait
+   * de toute façon, mais autant ne pas le proposer). */
+  ownedShareOptions(excludeSubtreeOf?: string): Share[] {
+    const owned = this.shares()?.owned ?? [];
+    if (!excludeSubtreeOf) return owned;
+    const excluded = new Set<string>([excludeSubtreeOf]);
+    // parent est un champ plat (nom), donc un simple point fixe suffit pour
+    // capturer toute la sous-arborescence sans avoir à parcourir `tree`.
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const s of owned) {
+        if (s.parent && excluded.has(s.parent) && !excluded.has(s.name)) {
+          excluded.add(s.name);
+          grew = true;
+        }
+      }
+    }
+    return owned.filter(s => !excluded.has(s.name));
   }
 
   // ── Fichiers ────────────────────────────────────────────────────────────

@@ -1,8 +1,16 @@
 from dataclasses import dataclass
 
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError as DRFValidationError
 
 from .models import Share, ShareMember
+
+# Garde-fou défensif contre une remontée de chaîne parent trop longue (cycle
+# corrompu en base, jamais censé se produire puisque validate_new_parent
+# l'interdit à l'écriture — mais une ligne éditée à la main via un shell
+# Django contournerait cette validation). Sans lien avec une limite d'usage :
+# la hiérarchie du lab restera très plate en pratique (quelques niveaux par
+# app, cf. sharing-model-orchestration.md).
+MAX_SHARE_HIERARCHY_DEPTH = 32
 
 
 @dataclass
@@ -79,3 +87,47 @@ def get_owned_share(user, name: str) -> Share:
     if share.owner_username != user.username:
         raise PermissionDenied("Seul le propriétaire du partage peut faire ceci.")
     return share
+
+
+def validate_new_parent(share: Share, parent_name: str | None, *, enforce_same_owner: bool) -> Share | None:
+    """Valide un changement de `Share.parent`. Retourne l'objet Share parent
+    validé (ou None pour détacher `share` à la racine). Lève une
+    ValidationError DRF sinon — jamais d'accès direct octroyé ou retiré par
+    cette fonction, elle ne touche qu'à l'organisation (voir Share.parent).
+
+    - Le parent doit exister.
+    - Ni auto-référence, ni cycle (remontée bornée à MAX_SHARE_HIERARCHY_DEPTH,
+      garde-fou défensif — voir la constante).
+    - `enforce_same_owner=True` (chemin self-service, cf.
+      ShareDetailView.patch) : le parent doit appartenir au même
+      owner_username que l'enfant — voir Share.parent pour la justification.
+      `manage.py set_share_parent` appelle avec enforce_same_owner=False
+      (mêmes garanties anti-cycle, mais pas cette contrainte).
+    """
+    if not parent_name:
+        return None
+
+    try:
+        parent = Share.objects.get(name=parent_name)
+    except Share.DoesNotExist:
+        raise DRFValidationError({'parent': [f"Partage parent '{parent_name}' introuvable."]})
+
+    if parent.name == share.name:
+        raise DRFValidationError({'parent': ["Un partage ne peut pas être son propre parent."]})
+
+    if enforce_same_owner and parent.owner_username != share.owner_username:
+        raise DRFValidationError({'parent': [
+            "Le partage parent doit appartenir au même propriétaire."
+        ]})
+
+    cur = parent
+    depth = 0
+    while cur is not None:
+        if cur.name == share.name:
+            raise DRFValidationError({'parent': ["Rattachement refusé : créerait un cycle."]})
+        if depth >= MAX_SHARE_HIERARCHY_DEPTH:
+            raise DRFValidationError({'parent': ["Hiérarchie trop profonde pour être validée."]})
+        cur = cur.parent
+        depth += 1
+
+    return parent
