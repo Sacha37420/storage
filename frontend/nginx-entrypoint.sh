@@ -11,6 +11,7 @@ window.__env = {
   keycloakUrl:      "${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}",
   keycloakRealm:    "${KEYCLOAK_REALM:-ssolab}",
   keycloakClientId: "${KEYCLOAK_CLIENT_ID}",
+  maxUploadBytes:   ${MAX_UPLOAD_BYTES:-209715200},
   apiUrl:           "https://${DOMAIN}/storage-api",
   appUrl:           "https://${DOMAIN}/storage/"
 };
@@ -21,6 +22,7 @@ window.__env = {
   keycloakUrl:      "${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}",
   keycloakRealm:    "${KEYCLOAK_REALM:-ssolab}",
   keycloakClientId: "${KEYCLOAK_CLIENT_ID}",
+  maxUploadBytes:   ${MAX_UPLOAD_BYTES:-209715200},
   apiUrl:           window.location.protocol + '//' + window.location.hostname + ':${PORT_BACKEND:-8000}',
   appUrl:           window.location.protocol + '//' + window.location.hostname + ':${PORT_FRONTEND:-4200}'
 };

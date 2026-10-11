@@ -1,0 +1,75 @@
+<!-- Un nœud accessible=false n'est qu'un conteneur affiché pour naviguer
+     jusqu'à un descendant réellement partagé (cf. api/discovery.py côté
+     backend) : pas de lien, le backend refuserait de toute façon. -->
+<ng-template #treeNodeTpl let-node>
+  <li class="node">
+    @if (node.accessible) {
+      <a class="space" [routerLink]="['/', node.name]" [class.active]="store.namespace() === node.name"
+         [attr.aria-current]="store.namespace() === node.name ? 'page' : null" (click)="navigated.emit()">
+        <span class="label">{{ node.name }}</span>
+        @if (appOf(node.owner_username); as app) {
+          <span class="badge app" [title]="'Géré par l\'application ' + app">app</span>
+        } @else if (node.access === 'member') {
+          <span class="badge" [class.write]="node.can_write">{{ node.can_write ? 'écriture' : 'lecture' }}</span>
+        } @else if (node.access === 'group') {
+          <span class="badge write">groupe</span>
+        }
+      </a>
+    } @else {
+      <span class="space locked" [title]="'Non accessible directement — appartient à ' + node.owner_username">
+        <app-icon name="lock" /> <span class="label">{{ node.name }}</span>
+      </span>
+    }
+    @if (node.children?.length) {
+      <ul class="children">
+        @for (child of node.children; track child.name) {
+          <ng-container *ngTemplateOutlet="treeNodeTpl; context: { $implicit: child }" />
+        }
+      </ul>
+    }
+  </li>
+</ng-template>
+
+<section>
+  <h2>Mes fichiers</h2>
+  @if (store.me(); as u) {
+    <a class="space" [routerLink]="['/', u.username]" [class.active]="store.namespace() === u.username"
+       [attr.aria-current]="store.namespace() === u.username ? 'page' : null" (click)="navigated.emit()">
+      <span class="label">{{ u.username }}</span>
+    </a>
+  }
+</section>
+
+<section>
+  <div class="head">
+    <h2>Partages</h2>
+    <button class="plus" type="button" (click)="creating.set(!creating())" [attr.aria-expanded]="creating()"
+            aria-label="Nouveau partage" title="Nouveau partage">+</button>
+  </div>
+
+  @if (creating()) {
+    <form class="new-share" (ngSubmit)="submitNewShare()">
+      <input [(ngModel)]="newShareName" name="newShareName" placeholder="nom-du-partage" autocomplete="off"
+             aria-label="Nom du nouveau partage" />
+      <select [(ngModel)]="newShareParent" name="newShareParent" aria-label="Partage parent">
+        <option value="">— aucun parent (racine) —</option>
+        @for (s of store.shares()?.owned ?? []; track s.name) {
+          <option [value]="s.name">sous {{ s.name }}</option>
+        }
+      </select>
+      <button class="btn-primary" type="submit">Créer</button>
+    </form>
+    @if (newShareError()) { <p class="field-error" role="alert">{{ newShareError() }}</p> }
+  }
+
+  <ul class="tree">
+    @for (root of store.shares()?.tree ?? []; track root.name) {
+      <ng-container *ngTemplateOutlet="treeNodeTpl; context: { $implicit: root }" />
+    }
+  </ul>
+  @if ((store.shares()?.tree ?? []).length === 0) {
+    <p class="hint">Aucun partage accessible.</p>
+  }
+</section>
+
+<p class="usage">{{ store.usage() }} dans cet espace</p>

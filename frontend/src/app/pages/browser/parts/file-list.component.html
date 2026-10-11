@@ -1,0 +1,122 @@
+<!-- Le déclencheur du menu est sur l'élément EXTÉRIEUR ; l'écouteur
+     (contextmenu) qui ajuste la sélection est sur l'élément intérieur, donc
+     s'exécute avant l'ouverture du menu (l'événement remonte). -->
+<div
+  #zone
+  class="zone"
+  [appFileDrop]="store.path()"
+  [cdkContextMenuTriggerFor]="menu"
+>
+  <div
+    class="grid"
+    role="grid"
+    tabindex="-1"
+    aria-label="Fichiers et dossiers"
+    aria-multiselectable="true"
+    [attr.aria-rowcount]="store.entries().length + 1"
+    [attr.aria-busy]="store.loading()"
+    (click)="onBackgroundClick()"
+    (contextmenu)="onContextMenu($event)"
+  >
+    <div class="row head" role="row" (click)="$event.stopPropagation()">
+      <span class="c-check" role="columnheader">
+        <label class="check">
+          <input type="checkbox" [checked]="allSelected()" [disabled]="store.entries().length === 0"
+                 (change)="toggleAll()" aria-label="Tout sélectionner" />
+        </label>
+      </span>
+      <span class="c-name" role="columnheader" [attr.aria-sort]="ariaSort('name')">
+        <button type="button" class="sort" (click)="sortBy('name')">Nom
+          <span class="arrow" aria-hidden="true">{{ ariaSort('name') === 'ascending' ? '▲' : ariaSort('name') === 'descending' ? '▼' : '' }}</span>
+        </button>
+      </span>
+      <span class="c-size" role="columnheader" [attr.aria-sort]="ariaSort('size')">
+        <button type="button" class="sort" (click)="sortBy('size')">Taille
+          <span class="arrow" aria-hidden="true">{{ ariaSort('size') === 'ascending' ? '▲' : ariaSort('size') === 'descending' ? '▼' : '' }}</span>
+        </button>
+      </span>
+      <span class="c-date" role="columnheader" [attr.aria-sort]="ariaSort('date')">
+        <button type="button" class="sort" (click)="sortBy('date')">Modifié
+          <span class="arrow" aria-hidden="true">{{ ariaSort('date') === 'ascending' ? '▲' : ariaSort('date') === 'descending' ? '▼' : '' }}</span>
+        </button>
+      </span>
+    </div>
+
+    @if (store.loading()) {
+      <p class="state" role="row"><span role="gridcell">Chargement…</span></p>
+    } @else if (store.loadError()) {
+      <p class="state error" role="row"><span role="gridcell">{{ store.loadError() }}</span></p>
+    } @else {
+      @for (e of store.entries(); track e.id; let i = $index) {
+        <div
+          class="row entry"
+          role="row"
+          [class.selected]="store.selection().selected.has(e.id)"
+          [class.folder]="e.kind === 'folder'"
+          [attr.data-id]="e.id"
+          [attr.data-kind]="e.kind"
+          [attr.aria-selected]="store.selection().selected.has(e.id)"
+          [attr.aria-rowindex]="i + 2"
+          [attr.tabindex]="tabStop() === e.id ? 0 : -1"
+          (click)="onRowClick($event, e)"
+          (dblclick)="onRowDblClick($event, e)"
+          (focus)="onRowFocus(e)"
+          (pointerdown)="onPointerDown($event, e)"
+          (pointermove)="onPointerMove($event)"
+          (pointerup)="cancelPress()"
+          (pointercancel)="cancelPress()"
+          (pointerleave)="cancelPress()"
+        >
+          <span class="c-check" role="gridcell">
+            <label class="check" (click)="$event.stopPropagation()" (dblclick)="$event.stopPropagation()">
+              <input type="checkbox" tabindex="-1" [checked]="store.selection().selected.has(e.id)"
+                     (change)="onCheck($event, e)" [attr.aria-label]="'Sélectionner ' + e.name" />
+            </label>
+          </span>
+          <span class="c-name" role="gridcell">
+            <app-icon class="kind" [name]="e.kind === 'folder' ? 'folder' : 'file'" />
+            <span class="name" [title]="e.name">{{ e.name }}</span>
+            @if (e.pending) { <span class="badge" title="Ce dossier sera conservé dès qu'il contiendra un fichier">vide · non enregistré</span> }
+          </span>
+          <span class="c-size" role="gridcell">
+            @if (e.kind === 'folder' && e.count === 0) { — } @else { {{ formatSize(e.size) }} }
+          </span>
+          <span class="c-date" role="gridcell">
+            @if (e.updatedAt) { {{ e.updatedAt | date:'dd/MM/yyyy HH:mm' }} } @else { — }
+          </span>
+        </div>
+      }
+      @if (store.entries().length === 0) {
+        <p class="state" role="row">
+          <span role="gridcell">
+            @if (store.filter()) {
+              Aucun élément ne correspond à « {{ store.filter() }} ».
+            } @else if (store.canWrite()) {
+              Dossier vide. Déposez des fichiers ici, ou utilisez « Téléverser ».
+            } @else {
+              Dossier vide.
+            }
+          </span>
+        </p>
+      }
+    }
+  </div>
+
+  <div class="veil" aria-hidden="true">
+    <app-icon name="upload" />
+    Déposer dans « {{ store.path() ? store.path().split('/').pop() : store.namespace() }} »
+  </div>
+</div>
+
+<ng-template #menu>
+  <div class="menu" cdkMenu>
+    @for (a of menuActions(); track a.id) {
+      <button class="menu-item" [class.danger]="a.danger" cdkMenuItem (cdkMenuItemTriggered)="runAction(a)">
+        <app-icon [name]="a.icon" />
+        <span class="label">{{ a.label }}</span>
+        @if (a.shortcut) { <kbd>{{ shortcutLabel(a.shortcut) }}</kbd> }
+      </button>
+    }
+    @if (menuActions().length === 0) { <span class="menu-empty">Aucune action possible ici</span> }
+  </div>
+</ng-template>

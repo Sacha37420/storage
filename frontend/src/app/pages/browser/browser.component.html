@@ -1,233 +1,108 @@
 <div class="browser">
 
-  <!-- Rendu récursif d'un nœud de l'arborescence des partages (GET /api/shares/
-       → champ `tree`). Un nœud accessible=false n'est qu'un conteneur affiché
-       pour naviguer jusqu'à un descendant réellement partagé — non cliquable
-       pour ouvrir son contenu (le backend le refuserait de toute façon),
-       seuls ses enfants pertinents sont listés (jamais ses voisins). -->
-  <ng-template #treeNodeTpl let-node>
-    <div class="tree-node">
-      @if (node.accessible) {
-        <a class="ns-link tree-link" [class.active]="namespace() === node.name" (click)="goToNamespace(node.name)">
-          {{ node.name }}
-          @if (node.access === 'member') {
-            <span class="role-badge" [class.write]="node.can_write">{{ node.can_write ? 'écriture' : 'lecture' }}</span>
-          } @else if (node.access === 'group') {
-            <span class="role-badge write">groupe</span>
-          }
-        </a>
-      } @else {
-        <span class="ns-link tree-link inaccessible" title="Non accessible directement — appartient à {{ node.owner_username }}, navigable seulement pour atteindre un sous-partage">
-          🔒 {{ node.name }}
-        </span>
-      }
-      @if (node.children?.length) {
-        <div class="tree-children">
-          @for (child of node.children; track child.name) {
-            <ng-container *ngTemplateOutlet="treeNodeTpl; context: { $implicit: child }"></ng-container>
-          }
-        </div>
-      }
+  <aside class="spaces" [class.open]="drawerOpen()" aria-label="Espaces">
+    <div class="spaces-head">
+      <span>Espaces</span>
+      <button type="button" class="icon-btn" (click)="drawerOpen.set(false)" aria-label="Fermer la liste des espaces">
+        <app-icon name="close" />
+      </button>
     </div>
-  </ng-template>
-
-  <aside class="ns-sidebar">
-    <section>
-      <h3>Mes fichiers</h3>
-      @if (me(); as u) {
-        <a class="ns-link" [class.active]="namespace() === u.username" (click)="goToNamespace(u.username)">
-          {{ u.username }}
-        </a>
-      }
-    </section>
-
-    <section>
-      <div class="ns-sidebar-head">
-        <h3>Partages</h3>
-        <button class="icon-btn" type="button" (click)="creatingShare.set(!creatingShare())" title="Nouveau partage">+</button>
-      </div>
-
-      @if (creatingShare()) {
-        <form class="new-share-form new-share-form-stacked" (ngSubmit)="submitNewShare()">
-          <input
-            [(ngModel)]="newShareName"
-            name="newShareName"
-            placeholder="nom-du-partage"
-            autocomplete="off"
-          />
-          <select [(ngModel)]="newShareParent" name="newShareParent">
-            <option value="">— aucun parent (racine) —</option>
-            @for (s of ownedShareOptions(); track s.name) {
-              <option [value]="s.name">sous {{ s.name }}</option>
-            }
-          </select>
-          <button class="btn-primary" type="submit">Créer</button>
-        </form>
-        @if (newShareError()) { <p class="field-error">{{ newShareError() }}</p> }
-      }
-
-      <!-- Arborescence complète : mes partages + ceux dont je suis membre,
-           PLUS les partages-conteneurs auxquels je n'ai pas accès direct mais
-           qui mènent à un partage qui m'est accessible plus profondément
-           (verrouillés 🔒, cf. api/discovery.py côté backend). -->
-      @for (root of shares()?.tree ?? []; track root.name) {
-        <ng-container *ngTemplateOutlet="treeNodeTpl; context: { $implicit: root }"></ng-container>
-      }
-      @if ((shares()?.tree ?? []).length === 0) {
-        <p class="empty-hint">Aucun partage accessible.</p>
-      }
-    </section>
+    <app-space-tree (navigated)="drawerOpen.set(false)" />
   </aside>
 
-  <section class="browser-main">
-    <header class="browser-head">
+  <section class="main">
+    <header class="head">
+      <button type="button" class="spaces-btn" (click)="drawerOpen.set(true)" [attr.aria-expanded]="drawerOpen()">
+        <app-icon name="spaces" /> Espaces
+      </button>
+
       <nav class="breadcrumb" aria-label="Chemin">
-        <a (click)="goToBreadcrumb(-1)">{{ namespace() }}</a>
-        @for (seg of breadcrumbSegments(); track $index) {
-          <span class="sep">/</span>
-          <a (click)="goToBreadcrumb($index)">{{ seg }}</a>
+        <a class="crumb" [routerLink]="store.linkTo('')"
+           [attr.aria-current]="store.path() ? null : 'page'">{{ store.namespace() }}</a>
+        @for (seg of store.breadcrumb(); track seg.path; let last = $last) {
+          <app-icon class="sep" name="chevron" />
+          <a class="crumb" [routerLink]="store.linkTo(seg.path)"
+             [attr.aria-current]="last ? 'page' : null">{{ seg.name }}</a>
         }
       </nav>
 
-      @if (isOwnedShare()) {
-        <button class="btn-secondary" type="button" (click)="toggleManageShare()">
-          {{ managingShare() ? 'Fermer' : 'Gérer le partage' }}
+      @if (store.isOwnedShare()) {
+        <button class="btn-secondary" type="button" (click)="managing.set(!managing())" [attr.aria-expanded]="managing()">
+          {{ managing() ? 'Fermer' : 'Gérer le partage' }}
         </button>
       }
     </header>
 
-    @if (managingShare() && isOwnedShare()) {
-      <section class="share-manage">
-        <h4>Membres de « {{ namespace() }} »</h4>
-
-        @if (currentShare()?.required_groups) {
-          <p class="group-banner">
-            Partagé automatiquement (lecture/écriture) avec le groupe :
-            <strong>{{ currentShare()!.required_groups }}</strong> — géré via Keycloak, pas ici.
-          </p>
-        }
-
-        <div class="parent-row">
-          <span>
-            Emplacement :
-            @if (currentShare()?.parent) {
-              <strong>sous « {{ currentShare()!.parent }} »</strong>
-            } @else {
-              <strong>racine</strong>
-            }
-          </span>
-          <button class="link-btn" type="button" (click)="toggleMoveShare()">
-            {{ movingShare() ? 'Annuler' : 'Déplacer…' }}
-          </button>
-        </div>
-
-        @if (movingShare()) {
-          <form class="new-share-form" (ngSubmit)="submitMoveShare()">
-            <select [(ngModel)]="newParentName" name="newParentName">
-              <option value="">— aucun parent (racine) —</option>
-              @for (s of ownedShareOptions(namespace()); track s.name) {
-                <option [value]="s.name">sous {{ s.name }}</option>
-              }
-            </select>
-            <button class="btn-primary" type="submit">Valider</button>
-          </form>
-          @if (moveShareError()) { <p class="field-error">{{ moveShareError() }}</p> }
-        }
-
-        <ul class="member-list">
-          @for (m of members(); track m.member_email) {
-            <li>
-              <span>{{ m.member_email }} <span class="role-badge" [class.write]="m.role === 'write'">{{ m.role === 'write' ? 'écriture' : 'lecture' }}</span></span>
-              <button class="link-btn" type="button" (click)="removeMember(m.member_email)">Retirer</button>
-            </li>
-          }
-          @if (members().length === 0) {
-            <li class="empty-hint">Aucun membre pour l'instant.</li>
-          }
-        </ul>
-        <form class="add-member-form" (ngSubmit)="submitAddMember()">
-          <input
-            type="email"
-            [(ngModel)]="newMemberEmail"
-            name="newMemberEmail"
-            placeholder="email@exemple.com"
-            required
-            autocomplete="off"
-          />
-          <label class="write-toggle">
-            <input type="checkbox" [(ngModel)]="newMemberWriteAccess" name="newMemberWriteAccess" />
-            écriture
-          </label>
-          <button class="btn-primary" type="submit">Ajouter</button>
-        </form>
-        @if (memberError()) { <p class="field-error">{{ memberError() }}</p> }
-
-        <button class="btn-danger" type="button" (click)="confirmDeleteShare()">
-          Supprimer ce partage
-        </button>
-      </section>
+    @if (store.managedBy(); as app) {
+      <p class="managed" role="note">
+        <app-icon name="app" />
+        <span>Partage géré par l'application <strong>{{ app }}</strong>. Elle garde le chemin de ces fichiers :
+          en supprimer un ici peut y laisser un élément cassé.</span>
+      </p>
     }
 
-    @if (canWrite()) {
-      <div
-        class="dropzone"
-        [class.dragover]="dragOver()"
-        (dragover)="onDragOver($event)"
-        (dragleave)="dragOver.set(false)"
-        (drop)="onDrop($event)"
-      >
-        <label class="upload-btn">
-          Déposer des fichiers ici, ou cliquer pour choisir
-          <input type="file" multiple (change)="onFilePicked($event)" hidden />
-        </label>
-        @if (uploading()) {
-          <span class="upload-progress">Envoi… {{ uploadProgress() }}%</span>
-        }
+    @if (managing() && store.isOwnedShare()) { <app-share-panel /> }
+
+    <app-toolbar />
+
+    @if (store.notice(); as message) {
+      <div class="notice" role="alert">
+        <span>{{ message }}</span>
+        <button type="button" class="icon-btn" (click)="store.notice.set(null)" aria-label="Fermer le message">
+          <app-icon name="close" />
+        </button>
       </div>
     }
 
-    @if (loading()) {
-      <p class="loading">Chargement…</p>
-    } @else if (error()) {
-      <div class="error-card">{{ error() }}</div>
-    } @else {
-      <table class="file-table">
-        <thead>
-          <tr>
-            <th>Nom</th>
-            <th>Taille</th>
-            <th>Modifié</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (f of folders(); track f) {
-            <tr class="folder-row" (click)="openFolder(f)">
-              <td>📁 {{ f }}</td>
-              <td>—</td>
-              <td>—</td>
-              <td></td>
-            </tr>
-          }
-          @for (f of files(); track f.relative_path) {
-            <tr>
-              <td>{{ fileName(f) }}</td>
-              <td>{{ formatSize(f.size) }}</td>
-              <td>{{ f.updated_at | date:'dd/MM/yyyy HH:mm' }}</td>
-              <td class="row-actions">
-                <button class="link-btn" type="button" (click)="download(f)">Télécharger</button>
-                @if (canWrite()) {
-                  <button class="link-btn danger" type="button" (click)="removeFile(f)">Supprimer</button>
-                }
-              </td>
-            </tr>
-          }
-          @if (folders().length === 0 && files().length === 0) {
-            <tr><td colspan="4" class="empty-hint">Dossier vide.</td></tr>
-          }
-        </tbody>
-      </table>
-    }
+    <app-file-list />
   </section>
+
+  <!-- Sélecteurs natifs, déclenchés par les actions « Téléverser… » -->
+  <input #filesInput type="file" multiple hidden data-test="files-input" (change)="onPicked(filesInput)" />
+
+  <app-upload-panel />
+
+  @if (store.pendingDelete(); as pending) {
+    <div class="undo" role="status">
+      <span>{{ pending.label }}</span>
+      <button type="button" class="undo-btn" (click)="store.undoDelete()">Annuler</button>
+      <span class="timer" [style.animation-duration.s]="undoSeconds" aria-hidden="true"></span>
+    </div>
+  }
+
+  @if (store.folderDialog()) {
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="folder-title" (click)="store.folderDialog.set(false)">
+      <form class="modal-card" cdkTrapFocus cdkTrapFocusAutoCapture (click)="$event.stopPropagation()" (submit)="$event.preventDefault(); submitFolder()">
+        <h3 id="folder-title">Nouveau dossier</h3>
+        <input #folderNameInput type="text" class="text" autocomplete="off" aria-label="Nom du dossier" placeholder="Nom du dossier"
+               [value]="folderName" (input)="folderName = folderNameInput.value; folderError.set(null)" cdkFocusInitial />
+        @if (folderError()) { <p class="field-error" role="alert">{{ folderError() }}</p> }
+        <p class="modal-hint">Un dossier n'est conservé que s'il contient au moins un fichier : resté vide, il disparaîtra au rechargement de la page.</p>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" (click)="store.folderDialog.set(false)">Annuler</button>
+          <button type="submit" class="btn-primary">Créer</button>
+        </div>
+      </form>
+    </div>
+  }
+
+  @if (store.conflict(); as c) {
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="conflict-title">
+      <div class="modal-card" cdkTrapFocus cdkTrapFocusAutoCapture>
+        <h3 id="conflict-title">
+          @if (c.plan.conflicts.length === 1) { Un fichier porte déjà ce nom } @else { {{ c.plan.conflicts.length }} fichiers portent déjà ces noms }
+        </h3>
+        <p class="modal-hint">{{ conflictNames() }}
+          @if (c.plan.free.length) { — {{ c.plan.free.length }} autre{{ c.plan.free.length > 1 ? 's' : '' }} fichier{{ c.plan.free.length > 1 ? 's' : '' }} sans conflit. }
+        </p>
+        <div class="modal-actions stacked">
+          <button type="button" class="btn-primary" data-choice="keep-both" (click)="store.resolveConflict('keep-both')" cdkFocusInitial>Garder les deux</button>
+          <button type="button" class="btn-danger" data-choice="replace" (click)="store.resolveConflict('replace')">Remplacer l'existant</button>
+          <button type="button" class="btn-secondary" data-choice="skip" (click)="store.resolveConflict('skip')">Ignorer {{ c.plan.conflicts.length === 1 ? 'ce fichier' : 'ces fichiers' }}</button>
+          <button type="button" class="btn-secondary" data-choice="cancel" (click)="store.resolveConflict('cancel')">Tout annuler</button>
+        </div>
+      </div>
+    </div>
+  }
 
 </div>

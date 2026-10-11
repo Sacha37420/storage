@@ -1,0 +1,94 @@
+:host { display: block; container-type: inline-size; }
+
+.bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.count { font-size: var(--text-sm); font-weight: 600; color: var(--accent-deep); padding: 0 var(--space-2); }
+.spacer { flex: 1; }
+
+.act {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  min-width: 44px;
+  justify-content: center;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  &:hover { border-color: var(--accent); color: var(--accent); }
+  &.danger { color: var(--danger); }
+  &.danger:hover { border-color: var(--danger); background: var(--danger-tint); }
+  &.ghost { border-color: transparent; background: none; padding: 0; }
+}
+
+.readonly { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; color: var(--text-mute); font-size: var(--text-sm); }
+
+.filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text-mute);
+  &:focus-within { border-color: var(--accent); }
+  flex: 0 1 240px;
+  min-width: 120px;
+  input {
+    width: 100%;
+    flex: 1;
+    min-width: 0;
+    height: 42px;
+    border: none;
+    outline: none;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+  }
+}
+
+/* La barre ne passe jamais sur deux lignes : sa hauteur ne doit pas changer
+   quand une sélection apparaît, sinon la liste saute sous la souris (constaté
+   pendant un rectangle de sélection). Quand la place manque, les libellés
+   s'effacent et les icônes restent (title + aria-label portent le nom). */
+@media (min-width: 900px) {
+  .bar { flex-wrap: nowrap; }
+  .act { flex: none; white-space: nowrap; }
+}
+@container (max-width: 699px) {
+  .act .label { display: none; }
+}
+
+@media (max-width: 899px) {
+  .filter { flex: 1 1 100%; order: 5; input { width: 100%; flex: 1; } }
+  .spacer { display: none; }
+  .act .label { display: none; }
+  /* Avec une sélection, la barre colle au bas de l'écran, sous le pouce. */
+  .bar.has-selection {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 20;
+    margin: 0;
+    padding: var(--space-2) var(--space-4);
+    background: var(--card);
+    border-top: 1px solid var(--border);
+    flex-wrap: nowrap;
+    .filter { display: none; }
+    .count { flex: 1; }
+  }
+}

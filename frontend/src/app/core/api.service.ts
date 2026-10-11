@@ -3,8 +3,11 @@ import { HttpClient, HttpEvent, HttpRequest } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
 interface EnvWindow {
-  __env?: { apiUrl?: string };
+  __env?: { apiUrl?: string; maxUploadBytes?: number };
 }
+
+/** Limite par défaut du backend (MAX_UPLOAD_BYTES), si env.js ne la donne pas. */
+const DEFAULT_MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 export interface Me {
   email: string;
@@ -80,6 +83,26 @@ export class ApiService {
   private get base(): string {
     return (window as unknown as EnvWindow).__env?.apiUrl
       ?? 'http://localhost:8093';
+  }
+
+  /** Taille maximale d'un fichier, connue avant l'envoi pour refuser tout de suite. */
+  get maxUploadBytes(): number {
+    const v = Number((window as unknown as EnvWindow).__env?.maxUploadBytes);
+    return Number.isFinite(v) && v > 0 ? v : DEFAULT_MAX_UPLOAD_BYTES;
+  }
+
+  /**
+   * Suppression qui survit à la fermeture de l'onglet (`keepalive`) : HttpClient
+   * est annulé quand la page se décharge, fetch+keepalive ne l'est pas. Sert
+   * uniquement à valider une suppression en attente d'annulation au moment où
+   * l'utilisateur quitte la page — voir BrowserStore.flushPendingDelete().
+   */
+  deleteFileOnUnload(namespace: string, relativePath: string, token: string): void {
+    const url = `${this.base}/api/files/${encodeURIComponent(namespace)}/content/${encodePath(relativePath)}`;
+    try {
+      void fetch(url, { method: 'DELETE', keepalive: true, headers: { Authorization: `Bearer ${token}` } })
+        .catch(() => undefined);
+    } catch { /* page déjà déchargée : rien à faire */ }
   }
 
   getMe(): Observable<Me> {

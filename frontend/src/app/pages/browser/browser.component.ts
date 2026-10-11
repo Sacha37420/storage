@@ -1,377 +1,113 @@
-import { DatePipe, NgTemplateOutlet } from '@angular/common';
-import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, ViewChild, effect, inject, signal,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { FormsModule } from '@angular/forms';
-import { HttpErrorResponse, HttpEventType } from '@angular/common/http';
-import { ActivatedRoute, Router } from '@angular/router';
-import { catchError, of } from 'rxjs';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { A11yModule } from '@angular/cdk/a11y';
 
-import { ApiService, Me, Share, SharesResponse, ShareMember, ShareMemberRole, ShareTreeNode, StoredFile } from '../../core/api.service';
+import { BrowserStore, UNDO_DELAY_MS } from './browser.store';
+import { carriesFiles, filesFromInput } from './parts/drop-files';
+import { FileListComponent } from './parts/file-list.component';
+import { IconComponent } from './parts/icon.component';
+import { SharePanelComponent } from './parts/share-panel.component';
+import { SpaceTreeComponent } from './parts/space-tree.component';
+import { ToolbarComponent } from './parts/toolbar.component';
+import { UploadPanelComponent } from './parts/upload-panel.component';
 
-function extractError(err: unknown): string {
-  if (err instanceof HttpErrorResponse) {
-    const body = err.error;
-    if (typeof body === 'string') return body;
-    if (body && typeof body === 'object') {
-      const first = Object.values(body as Record<string, unknown>)[0];
-      if (Array.isArray(first)) return String(first[0]);
-      if (typeof first === 'string') return first;
-      if (body.detail) return String(body.detail);
-    }
-    return `Erreur ${err.status}`;
-  }
-  return 'Erreur inattendue.';
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} o`;
-  const units = ['Ko', 'Mo', 'Go', 'To'];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit++;
-  }
-  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
-}
-
+/**
+ * Page de l'explorateur : met en place les pièces et relie l'URL au magasin.
+ * L'état vit dans BrowserStore, la logique dans logic/, l'affichage dans parts/.
+ */
 @Component({
   selector: 'app-browser',
   standalone: true,
-  imports: [DatePipe, FormsModule, NgTemplateOutlet],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [BrowserStore],
+  imports: [
+    RouterLink, A11yModule, FileListComponent, IconComponent, SharePanelComponent,
+    SpaceTreeComponent, ToolbarComponent, UploadPanelComponent,
+  ],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.scss',
 })
 export class BrowserComponent {
-  private api = inject(ApiService);
+  protected store = inject(BrowserStore);
   private route = inject(ActivatedRoute);
-  private router = inject(Router);
   private destroyRef = inject(DestroyRef);
 
-  readonly formatSize = formatSize;
+  protected readonly undoSeconds = UNDO_DELAY_MS / 1000;
+  protected drawerOpen = signal(false);
+  protected managing = signal(false);
+  protected folderName = '';
+  protected folderError = signal<string | null>(null);
 
-  me = signal<Me | null>(null);
-  shares = signal<SharesResponse | null>(null);
-
-  namespace = signal<string>('');
-  pathPrefix = signal<string>(''); // sans '/' final ; '' = racine du namespace
-  allFiles = signal<StoredFile[]>([]);
-
-  loading = signal(true);
-  error = signal<string | null>(null);
-
-  creatingShare = signal(false);
-  newShareName = '';
-  newShareParent = ''; // '' = racine ; nom d'un partage possédé sinon
-  newShareError = signal<string | null>(null);
-
-  managingShare = signal(false);
-  members = signal<ShareMember[]>([]);
-  newMemberEmail = '';
-  newMemberWriteAccess = false;
-  memberError = signal<string | null>(null);
-
-  movingShare = signal(false);
-  newParentName = '';
-  moveShareError = signal<string | null>(null);
-
-  uploading = signal(false);
-  uploadProgress = signal(0);
-  dragOver = signal(false);
-
-  private prefixWithSlash = computed(() => {
-    const p = this.pathPrefix();
-    return p ? `${p}/` : '';
-  });
-
-  breadcrumbSegments = computed<string[]>(() => {
-    const p = this.pathPrefix();
-    return p ? p.split('/') : [];
-  });
-
-  folders = computed<string[]>(() => {
-    const prefix = this.prefixWithSlash();
-    const set = new Set<string>();
-    for (const f of this.allFiles()) {
-      if (!f.relative_path.startsWith(prefix)) continue;
-      const rest = f.relative_path.slice(prefix.length);
-      const idx = rest.indexOf('/');
-      if (idx !== -1) set.add(rest.slice(0, idx));
-    }
-    return [...set].sort((a, b) => a.localeCompare(b));
-  });
-
-  files = computed<StoredFile[]>(() => {
-    const prefix = this.prefixWithSlash();
-    return this.allFiles()
-      .filter(f => f.relative_path.startsWith(prefix) && !f.relative_path.slice(prefix.length).includes('/'))
-      .sort((a, b) => a.relative_path.localeCompare(b.relative_path));
-  });
-
-  canWrite = computed<boolean>(() => {
-    const me = this.me();
-    const ns = this.namespace();
-    if (!me || !ns) return false;
-    if (ns === me.username) return true;
-    return (this.shares()?.owned ?? []).some(s => s.name === ns);
-  });
-
-  isOwnedShare = computed<boolean>(() => {
-    const ns = this.namespace();
-    return (this.shares()?.owned ?? []).some(s => s.name === ns);
-  });
-
-  currentShare = computed<Share | null>(() => {
-    const ns = this.namespace();
-    const all = this.shares();
-    return all?.owned.find(s => s.name === ns) ?? all?.member_of.find(s => s.name === ns) ?? null;
-  });
+  @ViewChild('filesInput', { static: true }) private filesInput!: ElementRef<HTMLInputElement>;
+  @ViewChild(ToolbarComponent, { static: true }) private toolbar!: ToolbarComponent;
 
   constructor() {
-    this.api.getMe()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(me => {
-        this.me.set(me);
-        this.refreshShares();
-      });
+    this.store.ui = {
+      pickFiles: () => this.filesInput.nativeElement.click(),
+      pickFolder: () => undefined,
+      focusFilter: () => this.toolbar.focusFilter(),
+    };
+    this.store.init();
 
-    this.route.url
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(segments => {
-        const parts = segments.map(s => s.path);
-        const ns = parts[0] || this.me()?.username || '';
-        this.namespace.set(ns);
-        this.pathPrefix.set(parts.slice(1).join('/'));
-        this.managingShare.set(false);
-        if (ns) this.loadNamespace(ns);
-      });
-  }
+    this.route.url.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(segments => {
+      const parts = segments.map(s => s.path);
+      this.store.setLocation(parts[0] ?? '', parts.slice(1).join('/'));
+      this.managing.set(false);
+    });
 
-  private refreshShares(): void {
-    this.api.getShares()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(shares => {
-        this.shares.set(shares);
-        // Le premier chargement de /api/me/ peut précéder la résolution de
-        // route côté SPA : si aucun namespace n'est encore fixé (arrivée sur
-        // '/'), on retombe maintenant sur son propre espace personnel.
-        if (!this.namespace()) this.goToNamespace(this.me()!.username);
-      });
-  }
-
-  private loadNamespace(namespace: string): void {
-    this.loading.set(true);
-    this.error.set(null);
-    this.api.listFiles(namespace)
-      .pipe(
-        catchError((err: HttpErrorResponse) => {
-          this.error.set(extractError(err));
-          return of<StoredFile[]>([]);
-        }),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe(files => {
-        this.allFiles.set(files);
-        this.loading.set(false);
-      });
-  }
-
-  goToNamespace(namespace: string): void {
-    this.router.navigate(['/', namespace]);
-  }
-
-  openFolder(folder: string): void {
-    const segments = this.pathPrefix() ? [...this.breadcrumbSegments(), folder] : [folder];
-    this.router.navigate(['/', this.namespace(), ...segments]);
-  }
-
-  goToBreadcrumb(index: number): void {
-    // index = -1 → racine du namespace
-    const segments = this.breadcrumbSegments().slice(0, index + 1);
-    this.router.navigate(['/', this.namespace(), ...segments]);
-  }
-
-  fileName(f: StoredFile): string {
-    return f.relative_path.slice(this.prefixWithSlash().length);
-  }
-
-  // ── Partages ────────────────────────────────────────────────────────────
-
-  submitNewShare(): void {
-    const name = this.newShareName.trim().toLowerCase();
-    if (!name) return;
-    this.newShareError.set(null);
-    this.api.createShare(name, this.newShareParent || null).subscribe({
-      next: share => {
-        // refreshShares() plutôt qu'un patch local : la création peut changer
-        // la forme de l'arbre (nouveau nœud imbriqué sous newShareParent),
-        // pas seulement la liste plate `owned`.
-        this.refreshShares();
-        this.newShareName = '';
-        this.newShareParent = '';
-        this.creatingShare.set(false);
-        this.goToNamespace(share.name);
-      },
-      error: err => this.newShareError.set(extractError(err)),
+    // Le dialogue « Nouveau dossier » s'ouvre vide à chaque fois.
+    effect(() => {
+      if (this.store.folderDialog()) { this.folderName = ''; this.folderError.set(null); }
     });
   }
 
-  toggleManageShare(): void {
-    const next = !this.managingShare();
-    this.managingShare.set(next);
-    this.movingShare.set(false);
-    this.moveShareError.set(null);
-    if (next) this.loadMembers();
-  }
-
-  toggleMoveShare(): void {
-    const next = !this.movingShare();
-    this.movingShare.set(next);
-    this.moveShareError.set(null);
-    if (next) this.newParentName = this.currentShare()?.parent ?? '';
-  }
-
-  submitMoveShare(): void {
-    const name = this.namespace();
-    const parent = this.newParentName.trim().toLowerCase() || null;
-    this.moveShareError.set(null);
-    this.api.setShareParent(name, parent).subscribe({
-      next: () => {
-        this.refreshShares();
-        this.movingShare.set(false);
-      },
-      error: err => this.moveShareError.set(extractError(err)),
-    });
-  }
-
-  private loadMembers(): void {
-    this.api.getShareMembers(this.namespace()).subscribe(members => this.members.set(members));
-  }
-
-  submitAddMember(): void {
-    const email = this.newMemberEmail.trim().toLowerCase();
-    if (!email) return;
-    this.memberError.set(null);
-    const role: ShareMemberRole = this.newMemberWriteAccess ? 'write' : 'read';
-    this.api.addShareMember(this.namespace(), email, role).subscribe({
-      next: member => {
-        this.members.update(list => [...list.filter(m => m.member_email !== member.member_email), member]);
-        this.newMemberEmail = '';
-        this.newMemberWriteAccess = false;
-      },
-      error: err => this.memberError.set(extractError(err)),
-    });
-  }
-
-  removeMember(email: string): void {
-    this.api.removeShareMember(this.namespace(), email).subscribe(() => {
-      this.members.update(list => list.filter(m => m.member_email !== email));
-    });
-  }
-
-  confirmDeleteShare(): void {
-    const name = this.namespace();
-    if (!confirm(`Supprimer définitivement le partage « ${name} » et tous ses fichiers ?`)) return;
-    this.api.deleteShare(name).subscribe({
-      next: () => {
-        this.refreshShares();
-        this.goToNamespace(this.me()!.username);
-      },
-      // Le backend refuse (400) tant que le partage a des enfants (on_delete=PROTECT,
-      // cf. Share.parent côté backend) — message affiché tel quel, pas de local patch.
-      error: err => this.error.set(extractError(err)),
-    });
-  }
-
-  /** Aplatit l'arbre pour construire la liste d'options du <select> parent —
-   * seuls MES partages peuvent servir de parent en self-service (cf. backend,
-   * même-propriétaire imposé), et un partage ne peut pas se rattacher sous
-   * lui-même ni sous un de ses propres descendants (le backend le refuserait
-   * de toute façon, mais autant ne pas le proposer). */
-  ownedShareOptions(excludeSubtreeOf?: string): Share[] {
-    const owned = this.shares()?.owned ?? [];
-    if (!excludeSubtreeOf) return owned;
-    const excluded = new Set<string>([excludeSubtreeOf]);
-    // parent est un champ plat (nom), donc un simple point fixe suffit pour
-    // capturer toute la sous-arborescence sans avoir à parcourir `tree`.
-    let grew = true;
-    while (grew) {
-      grew = false;
-      for (const s of owned) {
-        if (s.parent && excluded.has(s.parent) && !excluded.has(s.name)) {
-          excluded.add(s.name);
-          grew = true;
-        }
-      }
-    }
-    return owned.filter(s => !excluded.has(s.name));
-  }
-
-  // ── Fichiers ────────────────────────────────────────────────────────────
-
-  onFilePicked(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    if (input.files?.length) this.uploadFiles(input.files);
+  protected onPicked(input: HTMLInputElement): void {
+    this.store.requestUpload(filesFromInput(input), this.store.path());
     input.value = '';
   }
 
-  onDragOver(event: DragEvent): void {
+  protected submitFolder(): void {
+    const error = this.store.folderNameError(this.folderName);
+    this.folderError.set(error);
+    if (!error) this.store.createFolder(this.folderName);
+  }
+
+  protected conflictNames(): string {
+    const names = (this.store.conflict()?.plan.conflicts ?? []).map(c => c.path.split('/').pop());
+    const shown = names.slice(0, 3).map(n => `« ${n} »`).join(', ');
+    return names.length > 3 ? `${shown} et ${names.length - 3} autre${names.length - 3 > 1 ? 's' : ''}` : shown;
+  }
+
+  // Un fichier lâché hors d'une zone de dépôt ne doit jamais faire quitter la
+  // page (comportement par défaut du navigateur : il ouvre le fichier).
+  @HostListener('window:dragover', ['$event'])
+  @HostListener('window:drop', ['$event'])
+  protected blockStrayDrop(event: DragEvent): void {
+    if (carriesFiles(event)) event.preventDefault();
+  }
+
+  /** Coller des fichiers (capture d'écran, fichier copié) = les téléverser dans le dossier courant. */
+  @HostListener('window:paste', ['$event'])
+  protected onPaste(event: ClipboardEvent): void {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('input, textarea, [contenteditable="true"]')) return;
+    const files = Array.from(event.clipboardData?.files ?? []);
+    if (files.length === 0 || !this.store.canWrite()) return;
     event.preventDefault();
-    this.dragOver.set(true);
+    this.store.requestUpload(files.map(file => ({ file, relPath: file.name })), this.store.path());
   }
 
-  onDrop(event: DragEvent): void {
-    event.preventDefault();
-    this.dragOver.set(false);
-    if (event.dataTransfer?.files?.length) this.uploadFiles(event.dataTransfer.files);
-  }
+  // Fermeture ou rechargement : une suppression en attente d'annulation est validée.
+  @HostListener('window:pagehide')
+  protected onPageHide(): void { this.store.flushPendingDelete(); }
 
-  private uploadFiles(fileList: FileList): void {
-    const files = Array.from(fileList);
-    const namespace = this.namespace();
-    const prefix = this.prefixWithSlash();
-    this.uploading.set(true);
-    this.uploadProgress.set(0);
-
-    const uploadNext = (index: number): void => {
-      if (index >= files.length) {
-        this.uploading.set(false);
-        this.loadNamespace(namespace);
-        return;
-      }
-      const file = files[index];
-      this.api.uploadFile(namespace, `${prefix}${file.name}`, file).subscribe({
-        next: event => {
-          if (event.type === HttpEventType.UploadProgress && event.total) {
-            this.uploadProgress.set(Math.round((100 * event.loaded) / event.total));
-          } else if (event.type === HttpEventType.Response) {
-            uploadNext(index + 1);
-          }
-        },
-        error: err => {
-          this.error.set(extractError(err));
-          this.uploading.set(false);
-        },
-      });
-    };
-    uploadNext(0);
-  }
-
-  download(f: StoredFile): void {
-    this.api.downloadFile(f.namespace, f.relative_path).subscribe(blob => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = this.fileName(f);
-      a.click();
-      URL.revokeObjectURL(url);
-    });
-  }
-
-  removeFile(f: StoredFile): void {
-    if (!confirm(`Supprimer « ${this.fileName(f)} » ?`)) return;
-    this.api.deleteFile(f.namespace, f.relative_path).subscribe(() => {
-      this.allFiles.update(list => list.filter(x => x.relative_path !== f.relative_path));
-    });
+  @HostListener('document:keydown.escape')
+  protected onEscape(): void {
+    if (this.store.conflict()) this.store.resolveConflict('cancel');
+    else if (this.store.folderDialog()) this.store.folderDialog.set(false);
+    else if (this.drawerOpen()) this.drawerOpen.set(false);
   }
 }

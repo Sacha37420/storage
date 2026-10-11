@@ -1,14 +1,14 @@
 /* ─── Foyer — polices (self-hosted, jamais de CDN) ──────────────────────── */
 @font-face { font-family: "Foyer UI"; font-weight: 400; font-style: normal; font-display: swap;
-  src: url("/assets/fonts/inter-latin-400-normal.woff2") format("woff2"); }
+  src: url("./assets/fonts/inter-latin-400-normal.woff2") format("woff2"); }
 @font-face { font-family: "Foyer UI"; font-weight: 600; font-style: normal; font-display: swap;
-  src: url("/assets/fonts/inter-latin-600-normal.woff2") format("woff2"); }
+  src: url("./assets/fonts/inter-latin-600-normal.woff2") format("woff2"); }
 @font-face { font-family: "Foyer UI"; font-weight: 800; font-style: normal; font-display: swap;
-  src: url("/assets/fonts/inter-latin-800-normal.woff2") format("woff2"); }
+  src: url("./assets/fonts/inter-latin-800-normal.woff2") format("woff2"); }
 @font-face { font-family: "Foyer Mono"; font-weight: 400; font-style: normal; font-display: swap;
-  src: url("/assets/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
+  src: url("./assets/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
 @font-face { font-family: "Foyer Mono"; font-weight: 600; font-style: normal; font-display: swap;
-  src: url("/assets/fonts/jetbrains-mono-latin-600-normal.woff2") format("woff2"); }
+  src: url("./assets/fonts/jetbrains-mono-latin-600-normal.woff2") format("woff2"); }
 
 /* ─── Foyer — tokens ─────────────────────────────────────────────────────── */
 :root {
@@ -116,3 +116,47 @@ code, pre, .mono { font-family: var(--font-mono); }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* ─── Éléments rendus hors des composants (attachés à <body>) ─────────── */
+
+/* Rectangle de sélection (@viselect/vanilla, cf. file-list.component.ts). */
+.lasso {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  z-index: 60;
+}
+
+/* Menu contextuel (@angular/cdk/menu). */
+.menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  max-width: calc(100vw - 2 * var(--space-4));
+  padding: var(--space-1);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 18%, transparent);
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.menu-item:hover, .menu-item:focus { background: var(--accent-tint); outline: none; }
+.menu-item.danger { color: var(--danger); }
+.menu-item.danger:hover, .menu-item.danger:focus { background: var(--danger-tint); }
+.menu-item .label { flex: 1; }
+.menu-item kbd { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-mute); }
+.menu-empty { padding: var(--space-3); color: var(--text-mute); font-size: var(--text-sm); }

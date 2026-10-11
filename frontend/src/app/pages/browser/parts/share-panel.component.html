@@ -1,0 +1,63 @@
+<section class="panel" aria-label="Gestion du partage">
+  <h3>Membres de « {{ store.namespace() }} »</h3>
+
+  @if (store.currentShare()?.required_groups) {
+    <p class="group-banner">
+      Partagé automatiquement (lecture/écriture) avec le groupe :
+      <strong>{{ store.currentShare()!.required_groups }}</strong> — géré via Keycloak, pas ici.
+    </p>
+  }
+
+  <div class="parent-row">
+    <span>
+      Emplacement :
+      @if (store.currentShare()?.parent) {
+        <strong>sous « {{ store.currentShare()!.parent }} »</strong>
+      } @else {
+        <strong>racine</strong>
+      }
+    </span>
+    <button class="link-btn" type="button" (click)="toggleMove()">{{ moving() ? 'Annuler' : 'Déplacer…' }}</button>
+  </div>
+
+  @if (moving()) {
+    <form class="inline-form" (ngSubmit)="submitMove()">
+      <select [(ngModel)]="newParentName" name="newParentName" aria-label="Nouveau partage parent">
+        <option value="">— aucun parent (racine) —</option>
+        @for (s of parentOptions(); track s.name) {
+          <option [value]="s.name">sous {{ s.name }}</option>
+        }
+      </select>
+      <button class="btn-primary" type="submit">Valider</button>
+    </form>
+    @if (moveError()) { <p class="field-error" role="alert">{{ moveError() }}</p> }
+  }
+
+  <ul class="member-list">
+    @for (m of members(); track m.member_email) {
+      <li>
+        <span>{{ m.member_email }}
+          <span class="role-badge" [class.write]="m.role === 'write'">{{ m.role === 'write' ? 'écriture' : 'lecture' }}</span>
+        </span>
+        <button class="link-btn" type="button" (click)="removeMember(m.member_email)"
+                [attr.aria-label]="'Retirer ' + m.member_email">Retirer</button>
+      </li>
+    }
+    @if (members().length === 0) {
+      <li class="hint">Aucun membre pour l'instant.</li>
+    }
+  </ul>
+
+  <form class="inline-form" (ngSubmit)="submitAddMember()">
+    <input type="email" [(ngModel)]="newMemberEmail" name="newMemberEmail" placeholder="email@exemple.com"
+           required autocomplete="off" aria-label="Adresse du membre à ajouter" />
+    <label class="write-toggle">
+      <input type="checkbox" [(ngModel)]="newMemberWriteAccess" name="newMemberWriteAccess" />
+      écriture
+    </label>
+    <button class="btn-primary" type="submit">Ajouter</button>
+  </form>
+  @if (memberError()) { <p class="field-error" role="alert">{{ memberError() }}</p> }
+
+  <button class="btn-danger" type="button" (click)="confirmDeleteShare()">Supprimer ce partage</button>
+</section>
