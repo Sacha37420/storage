@@ -9,6 +9,7 @@ from rest_framework.exceptions import NotFound, ValidationError as DRFValidation
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .content_safety import apply_serving_headers, serving_policy
 from .discovery import build_share_forest
 from .models import KnownUser, Share, ShareMember, StoredFile
 from .permissions import get_owned_share, require_write, resolve_namespace, validate_new_parent
@@ -218,12 +219,14 @@ class FileContentView(APIView):
     def get(self, request, namespace, relative_path):
         resolve_namespace(namespace, request.user)
         stored = _get_stored_file(namespace, relative_path)
-        response = FileResponse(
-            stored.content.open('rb'),
-            content_type=stored.content_type or 'application/octet-stream',
-        )
-        filename = stored.relative_path.rsplit('/', 1)[-1]
-        response['Content-Disposition'] = f'inline; filename="{filename}"'
+        # Le type déclaré par le déposant ne décide de rien : type émis,
+        # inline/attachment, nosniff et CSP viennent tous de
+        # api.content_safety (listes blanches) — voir sa docstring avant de
+        # toucher à ces en-têtes, un contenu actif servi ici s'exécute sur
+        # l'origine commune à toutes les apps du lab.
+        policy = serving_policy(stored.content_type)
+        response = FileResponse(stored.content.open('rb'), content_type=policy.content_type)
+        apply_serving_headers(response, stored.content_type, stored.relative_path.rsplit('/', 1)[-1])
         return response
 
     def delete(self, request, namespace, relative_path):
