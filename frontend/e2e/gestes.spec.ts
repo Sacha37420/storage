@@ -122,6 +122,25 @@ if (ENABLED) {
     await page.waitForSelector('.grid[aria-busy="false"]');
   }
 
+  /** Dépôt synthétique de fichiers sur `selector` (un vrai glissé depuis le bureau n'est pas pilotable). */
+  async function drop(selector: string, files: { name: string; content: string }[]): Promise<void> {
+    await page.evaluate(({ selector, files }) => {
+      const dt = new DataTransfer();
+      for (const f of files) dt.items.add(new File([f.content], f.name, { type: 'text/plain' }));
+      const el = document.querySelector(selector);
+      if (!el) throw new Error(`cible absente : ${selector}`);
+      for (const type of ['dragenter', 'dragover', 'drop']) {
+        el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }));
+      }
+    }, { selector, files });
+  }
+
+  const uploadsDone = (n: number) => expect.poll(() => page.locator('app-upload-panel li[data-status="done"]').count(), { timeout: 20_000 }).toBeGreaterThanOrEqual(n);
+  async function closeUploads(): Promise<void> {
+    const close = page.locator('app-upload-panel .link', { hasText: 'Fermer' });
+    if (await close.isVisible().catch(() => false)) await close.click();
+  }
+
   test.beforeAll(async ({ browser }) => {
     test.setTimeout(120_000);
     if (!APP_URL || !USER || !PASSWORD) throw new Error('E2E_APP_URL, E2E_USER et E2E_PASSWORD sont requis.');
@@ -314,7 +333,7 @@ if (ENABLED) {
     const grid = (await page.locator('.grid').boundingBox())!;
     await page.mouse.click(grid.x + grid.width / 2, grid.y + grid.height - 8, { button: 'right' });
     const empty = await page.$$eval('.menu .menu-item .label', els => els.map(e => e.textContent));
-    expect(empty).toEqual(expect.arrayContaining(['Téléverser des fichiers', 'Tout sélectionner']));
+    expect(empty).toEqual(expect.arrayContaining(['Nouveau dossier', 'Téléverser des fichiers', 'Téléverser un dossier', 'Tout sélectionner']));
     expect(empty).not.toContain('Supprimer');
     await page.keyboard.press('Escape');
 
@@ -410,6 +429,193 @@ if (ENABLED) {
     console.log(`CONSTAT fermeture d'onglet pendant le bandeau : ${closed ? 'suppression validée' : 'suppression NON envoyée (le fichier est resté)'}`);
     await reloadList();
     await expect(row('f:zz-d.txt')).toHaveCount(0);
+  });
+
+  // ── Lot 2 ────────────────────────────────────────────────────────────────
+
+  test('dépôt sur toute la liste, et sur une ligne dossier', async () => {
+    await drop('.zone', [{ name: 'zz-depot1.txt', content: 'un' }, { name: 'zz-depot2.txt', content: 'deux' }]);
+    await uploadsDone(2);
+    await expect(row('f:zz-depot1.txt')).toBeVisible();
+    await expect(row('f:zz-depot2.txt')).toBeVisible();
+    await closeUploads();
+
+    await seed('zz-cible/graine.txt', 'g');
+    await reloadList();
+    await drop('.entry[data-id="d:zz-cible"]', [{ name: 'zz-dans-dossier.txt', content: 'dedans' }]);
+    await uploadsDone(1);
+    await expect.poll(paths).toContain('zz-cible/zz-dans-dossier.txt');
+    expect(await paths()).not.toContain('zz-dans-dossier.txt');
+    await expect(row('d:zz-cible').locator('.c-size')).toHaveText('7 o'); // 1 + 6, sans rechargement
+    await closeUploads();
+  });
+
+  test('dépôt sur un cran du fil d\'Ariane', async () => {
+    await row('d:zz-cible').dblclick();
+    await expect(page).toHaveURL(new RegExp(`/${USER}/zz-cible$`));
+    await drop('.crumb:first-child', [{ name: 'zz-vers-racine.txt', content: 'r' }]);
+    await uploadsDone(1);
+    await expect.poll(paths).toContain('zz-vers-racine.txt');
+    await closeUploads();
+    await page.locator('.crumb').first().click();
+    await expect(row('f:zz-vers-racine.txt')).toBeVisible();
+  });
+
+  test('un fichier lâché hors de toute zone ne fait pas quitter la page', async () => {
+    const prevented = await page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.items.add(new File(['x'], 'zz-perdu.txt'));
+      const over = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt });
+      const dropEv = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt });
+      const target = document.querySelector('.sidebar') ?? document.body;
+      target.dispatchEvent(over);
+      target.dispatchEvent(dropEv);
+      return [over.defaultPrevented, dropEv.defaultPrevented];
+    });
+    expect(prevented).toEqual([true, true]);
+    await page.waitForTimeout(500);
+    expect(await paths()).not.toContain('zz-perdu.txt');
+  });
+
+  test('conflit de nom : choix explicite — garder les deux, remplacer, ignorer', async () => {
+    const sizeOf = async (p: string) => (await listing()).find(f => f.relative_path === p)?.size;
+    expect(await sizeOf('zz-a.txt')).toBe(3);
+
+    await drop('.zone', [{ name: 'zz-a.txt', content: 'NOUVEAU-CONTENU' }, { name: 'zz-libre.txt', content: 'l' }]);
+    await expect(page.locator('.modal')).toContainText('Un fichier porte déjà ce nom');
+    await expect(page.locator('.modal')).toContainText('zz-a.txt');
+    await shot('conflit');
+    await page.waitForTimeout(800);
+    expect(await sizeOf('zz-a.txt')).toBe(3); // rien n'est parti tant que le choix n'est pas fait
+    expect(await paths()).not.toContain('zz-libre.txt');
+    await page.locator('.modal [data-choice="keep-both"]').click();
+    await uploadsDone(2);
+    expect(await sizeOf('zz-a.txt')).toBe(3);
+    expect(await sizeOf('zz-a (2).txt')).toBe(15);
+    expect(await paths()).toContain('zz-libre.txt');
+    await closeUploads();
+
+    await drop('.zone', [{ name: 'zz-a.txt', content: 'IGNORE' }]);
+    await page.locator('.modal [data-choice="skip"]').click();
+    await page.waitForTimeout(800);
+    expect(await sizeOf('zz-a.txt')).toBe(3);
+    await expect(page.locator('app-upload-panel li')).toHaveCount(0);
+
+    await drop('.zone', [{ name: 'zz-a.txt', content: 'REMPLACE' }]);
+    await page.locator('.modal [data-choice="replace"]').click();
+    await uploadsDone(1);
+    expect(await sizeOf('zz-a.txt')).toBe(8);
+    await closeUploads();
+
+    // Échap = tout annuler.
+    await drop('.zone', [{ name: 'zz-a.txt', content: 'x' }]);
+    await expect(page.locator('.modal')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.modal')).toHaveCount(0);
+    expect(await sizeOf('zz-a.txt')).toBe(8);
+  });
+
+  test('file d\'envoi : un échec n\'arrête pas les suivants, « Relancer » rattrape', async () => {
+    let fail = true;
+    await page.route('**/storage-api/api/files/**', async route => {
+      const req = route.request();
+      if (req.method() === 'POST' && fail && (req.postData() ?? '').includes('zz-echec.txt')) return route.abort('failed');
+      return route.continue();
+    });
+    await drop('.zone', [
+      { name: 'zz-echec.txt', content: 'e' }, { name: 'zz-suivant1.txt', content: 's1' }, { name: 'zz-suivant2.txt', content: 's2' },
+    ]);
+    await uploadsDone(2);
+    await expect(page.locator('app-upload-panel li[data-status="error"]')).toHaveCount(1);
+    await expect(page.locator('app-upload-panel header')).toContainText('1 envoi en échec');
+    await shot('envois-echec');
+    expect(await paths()).toEqual(expect.arrayContaining(['zz-suivant1.txt', 'zz-suivant2.txt']));
+    expect(await paths()).not.toContain('zz-echec.txt');
+    fail = false;
+    await page.locator('app-upload-panel li[data-status="error"] .ico').click();
+    await uploadsDone(3);
+    expect(await paths()).toContain('zz-echec.txt');
+    await page.unroute('**/storage-api/api/files/**');
+    await closeUploads();
+  });
+
+  test('file d\'envoi : progression affichée, annulation d\'un envoi en cours', async () => {
+    await page.route('**/storage-api/api/files/**', async route => {
+      if (route.request().method() === 'POST') await new Promise(r => setTimeout(r, 4000));
+      return route.continue().catch(() => undefined);
+    });
+    await drop('.zone', [{ name: 'zz-lent1.txt', content: 'l1' }, { name: 'zz-lent2.txt', content: 'l2' }, { name: 'zz-lent3.txt', content: 'l3' }]);
+    // Deux envois en parallèle, le troisième attend.
+    await expect(page.locator('app-upload-panel li[data-status="uploading"]')).toHaveCount(2);
+    await expect(page.locator('app-upload-panel li[data-status="queued"]')).toHaveCount(1);
+    await expect(page.locator('app-upload-panel header')).toContainText('Envoi : 0/3');
+    await shot('envois-en-cours');
+    await page.locator('app-upload-panel li[data-status="queued"] .ico').click();
+    await page.locator('app-upload-panel li[data-status="uploading"] .ico').first().click();
+    await expect(page.locator('app-upload-panel li[data-status="canceled"]')).toHaveCount(2);
+    await uploadsDone(1);
+    await page.unroute('**/storage-api/api/files/**');
+    const after = await paths();
+    expect(after.filter(p => p.startsWith('zz-lent')).length).toBe(1);
+    await closeUploads();
+  });
+
+  test('téléversement d\'un dossier entier (sélecteur de dossier)', async () => {
+    const root = fs.mkdtempSync('/tmp/zz-gestes-');
+    const dir = path.join(root, 'zz-arbo');
+    fs.mkdirSync(path.join(dir, 'sous', 'plus'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'a');
+    fs.writeFileSync(path.join(dir, 'sous', 'b.txt'), 'bb');
+    fs.writeFileSync(path.join(dir, 'sous', 'plus', 'c.txt'), 'ccc');
+    try {
+      await page.locator('[data-test="folder-input"]').setInputFiles(dir);
+      await uploadsDone(3);
+      expect(await paths()).toEqual(expect.arrayContaining(['zz-arbo/a.txt', 'zz-arbo/sous/b.txt', 'zz-arbo/sous/plus/c.txt']));
+      await expect(row('d:zz-arbo').locator('.c-size')).toHaveText('6 o');
+      await closeUploads();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('téléversement par le sélecteur de fichiers, depuis la barre d\'actions', async () => {
+    const chooser = page.waitForEvent('filechooser');
+    await page.locator('app-toolbar [data-action="upload-files"]').click();
+    await (await chooser).setFiles([{ name: 'zz-choisi.txt', mimeType: 'text/plain', buffer: Buffer.from('choisi') }]);
+    await uploadsDone(1);
+    await expect(row('f:zz-choisi.txt')).toBeVisible();
+    await closeUploads();
+  });
+
+  test('nouveau dossier : local tant qu\'il est vide, réel au premier fichier', async () => {
+    await page.locator('app-toolbar [data-action="new-folder"]').click();
+    await expect(page.locator('.modal')).toContainText('Nouveau dossier');
+    await page.keyboard.type('zz-a.txt');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.modal .field-error')).toContainText('déjà ce nom');
+    await page.locator('.modal input').fill('zz-nouveau');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.modal')).toHaveCount(0);
+    await expect(row('d:zz-nouveau').locator('.badge')).toContainText('non enregistré');
+    expect(await selectedIds()).toEqual(['d:zz-nouveau']);
+    expect((await paths()).some(p => p.startsWith('zz-nouveau'))).toBe(false); // rien côté serveur
+
+    await drop('.entry[data-id="d:zz-nouveau"]', [{ name: 'premier.txt', content: 'p' }]);
+    await uploadsDone(1);
+    await expect.poll(paths).toContain('zz-nouveau/premier.txt');
+    await expect(row('d:zz-nouveau').locator('.badge')).toHaveCount(0);
+    await expect(page.locator('app-upload-panel li .meta')).toHaveText('1 o'); // taille du fichier, pas du corps multipart
+    await closeUploads();
+    await page.keyboard.press('Escape'); // le dossier créé est sélectionné : les actions de création reviennent sans sélection
+
+    // Resté vide, un dossier local disparaît au rechargement — et se supprime sans appel serveur.
+    await page.locator('app-toolbar [data-action="new-folder"]').click();
+    await page.locator('.modal input').fill('zz-vide');
+    await page.keyboard.press('Enter');
+    await expect(row('d:zz-vide')).toBeVisible();
+    await reloadList();
+    await expect(row('d:zz-vide')).toHaveCount(0);
+    await expect(row('d:zz-nouveau')).toBeVisible();
   });
 
   // ── Mesures ──────────────────────────────────────────────────────────────

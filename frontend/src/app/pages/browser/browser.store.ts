@@ -485,7 +485,7 @@ export class BrowserStore implements ActionHost {
   /**
    * Point d'entrée unique : sélecteur de fichiers, sélecteur de dossier,
    * glisser-déposer, coller. `targetFolder` : dossier de destination dans
-   * l'espace courant.
+   * l'espace courant. Rien n'est jamais écrasé sans un choix explicite.
    */
   requestUpload(dropped: readonly DroppedFile[], targetFolder: string): void {
     if (!this.canWrite() || dropped.length === 0) return;
@@ -502,8 +502,16 @@ export class BrowserStore implements ActionHost {
     }
     if (candidates.length === 0) return;
 
-    // Lot 1 : comportement d'origine, un fichier de même nom est remplacé. Le choix explicite arrive au lot 2.
-    this.enqueue(namespace, candidates);
+    // Chemins pris : fichiers existants, envois en cours, et tout dossier
+    // (un fichier « photos » à côté d'un dossier « photos » serait ambigu).
+    const taken = new Set<string>([...this.files().map(f => f.relative_path), ...this.queue.activePaths(namespace)]);
+    for (const f of this.files()) {
+      const parts = f.relative_path.split('/');
+      for (let i = 1; i < parts.length; i++) taken.add(parts.slice(0, i).join('/'));
+    }
+    const plan = planUploads(candidates, taken);
+    if (plan.conflicts.length === 0) this.enqueue(namespace, plan.free);
+    else this.conflict.set({ namespace, plan, taken });
   }
 
   resolveConflict(mode: ConflictMode | 'cancel'): void {

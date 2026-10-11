@@ -1,59 +1,68 @@
-# StorageFrontend
+# storage — frontend
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.2.19.
+Angular 21 (composants autonomes, signaux), identité Foyer. Une seule page : l'explorateur de
+fichiers. Le contrat de l'API qu'il appelle est décrit dans `../README.md` ; la feuille de route,
+dans `to_do_storage.md` à la racine du dépôt parent.
 
-## Development server
+## Où est quoi
 
-To start a local development server, run:
-
-```bash
-ng serve
+```
+src/app/core/                      API HTTP, Keycloak, thème — rien de propre à l'explorateur
+src/app/pages/browser/
+  logic/                           fonctions pures, sans Angular, testées sans navigateur
+    entries.ts                     liste plate de l'API → dossiers + fichiers ; tri, filtre, noms libres
+    selection.ts                   clic, Ctrl, Maj, plage, rectangle, flèches
+    actions.ts                     LA table des actions (barre, menu contextuel, clavier)
+    upload-queue.ts                file d'envoi, conflits de nom
+  browser.store.ts                 l'état de la page, en signaux
+  browser.component.*              mise en place : volet, en-tête, dialogues, bandeau d'annulation
+  parts/                           liste, barre d'actions, volet des espaces, gestion du partage,
+                                   panneau d'envois, zone de dépôt, icônes
 ```
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+Trois règles tiennent l'ensemble :
 
-## Code scaffolding
+1. **Une action = une entrée dans `logic/actions.ts`.** La barre, le menu contextuel (clic droit,
+   appui long) et le clavier lisent la même table. Pour ajouter « Dupliquer » : une entrée, plus la
+   méthode correspondante dans `ActionHost` / `BrowserStore`.
+2. **La logique vit dans `logic/`**, sans import Angular : elle se teste en quelques millisecondes.
+3. **Aucune couleur en dur** : uniquement les variables Foyer de `src/styles.scss`. Les éléments
+   rendus hors des composants (menu contextuel, rectangle de sélection) sont stylés dans ce même
+   fichier, pas dans un composant.
 
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+À savoir avant de modifier :
 
-```bash
-ng generate component component-name
-```
+- L'API n'a **pas d'objet « dossier »** : un dossier est un préfixe de chemin. Un dossier créé dans
+  l'interface est local à la page jusqu'à son premier fichier (`BrowserStore.createFolder`).
+- **Suppression** : définitive, annulable 7 s (`UNDO_DELAY_MS`). L'appel `DELETE` ne part qu'à
+  l'expiration du bandeau ; quitter ou fermer la page pendant le bandeau **valide** la suppression
+  (`flushPendingDelete`, requêtes `keepalive`).
+- **Droit d'écriture** : lu dans `can_write` de `GET /api/shares/` (`BrowserStore.canWrite`), jamais
+  recalculé ici.
+- **Partage géré par une application** : reconnu au seul propriétaire `service:<client>`
+  (`BrowserStore.managedBy`). Un partage d'app créé au nom d'un compte humain n'est pas
+  reconnaissable avec l'API actuelle.
+- Renommer, déplacer, copier : absents de l'API, donc de l'interface.
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
-
-```bash
-ng generate --help
-```
-
-## Building
-
-To build the project run:
-
-```bash
-ng build
-```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
+## Commandes
 
 ```bash
-ng test
+npm install
+npm run build        # compilation stricte + bundle dans dist/
+npm test             # tests unitaires de logic/ (vitest)
 ```
 
-## Running end-to-end tests
+## Tests de gestes en navigateur réel
 
-For end-to-end (e2e) testing, run:
+`e2e/gestes.spec.ts` est propre à cette app et **hors catalogue** : il ne définit aucun test tant
+que `E2E_GESTES` n'est pas posé, si bien que le runner du lab, qui parcourt `e2e/` pour
+`cloisonnement.spec.ts`, ne le voit pas. Il se lance à la main :
 
 ```bash
-ng e2e
+npm run build
+LAB_ROOT=/chemin/du/depot/parent bash e2e/jouer-gestes.sh              # ce build, contre le backend en service
+LAB_ROOT=/chemin/du/depot/parent bash e2e/jouer-gestes.sh --deploye    # le frontend déployé
 ```
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+Il écrit dans l'espace personnel du compte `e2edev` (fichiers `zz-…`, supprimés à la fin) et ne
+touche à aucun partage.

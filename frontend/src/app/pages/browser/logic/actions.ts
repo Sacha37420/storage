@@ -72,6 +72,16 @@ export const ACTIONS: readonly FileAction[] = [
     run: host => host.pickFiles(),
   },
   {
+    id: 'upload-folder', label: 'Téléverser un dossier', icon: 'folder-up', group: 'create', inBar: true, inMenu: true,
+    visible: ctx => ctx.canWrite && ctx.selection.length === 0,
+    run: host => host.pickFolder(),
+  },
+  {
+    id: 'new-folder', label: 'Nouveau dossier', icon: 'folder-plus', group: 'create', inBar: true, inMenu: true,
+    visible: ctx => ctx.canWrite && ctx.selection.length === 0,
+    run: host => host.newFolder(),
+  },
+  {
     id: 'select-all', label: 'Tout sélectionner', icon: 'check-all', group: 'view', shortcut: 'Control+a', global: true, inMenu: true,
     visible: ctx => ctx.total > 0 && ctx.selection.length < ctx.total,
     run: host => host.selectAll(),

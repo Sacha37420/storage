@@ -8,8 +8,8 @@ const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({ selection: 
 const ids = (c: ActionContext, where: 'bar' | 'menu') => actionsFor(c, where).map(a => a.id);
 
 describe('visibilité', () => {
-  it('sans sélection, en écriture : téléverser', () => {
-    expect(ids(ctx(), 'bar')).toEqual(['upload-files']);
+  it('sans sélection, en écriture : créer et téléverser', () => {
+    expect(ids(ctx(), 'bar')).toEqual(['upload-files', 'upload-folder', 'new-folder']);
   });
 
   it('sans sélection, en lecture seule : rien dans la barre', () => {

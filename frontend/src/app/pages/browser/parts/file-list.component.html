@@ -58,6 +58,8 @@
           [attr.aria-selected]="store.selection().selected.has(e.id)"
           [attr.aria-rowindex]="i + 2"
           [attr.tabindex]="tabStop() === e.id ? 0 : -1"
+          [appFileDrop]="e.path"
+          [dropDisabled]="e.kind !== 'folder'"
           (click)="onRowClick($event, e)"
           (dblclick)="onRowDblClick($event, e)"
           (focus)="onRowFocus(e)"

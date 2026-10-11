@@ -7,6 +7,7 @@ import { A11yModule } from '@angular/cdk/a11y';
 
 import { BrowserStore, UNDO_DELAY_MS } from './browser.store';
 import { carriesFiles, filesFromInput } from './parts/drop-files';
+import { FileDropDirective } from './parts/file-drop.directive';
 import { FileListComponent } from './parts/file-list.component';
 import { IconComponent } from './parts/icon.component';
 import { SharePanelComponent } from './parts/share-panel.component';
@@ -24,7 +25,7 @@ import { UploadPanelComponent } from './parts/upload-panel.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [BrowserStore],
   imports: [
-    RouterLink, A11yModule, FileListComponent, IconComponent, SharePanelComponent,
+    RouterLink, A11yModule, FileDropDirective, FileListComponent, IconComponent, SharePanelComponent,
     SpaceTreeComponent, ToolbarComponent, UploadPanelComponent,
   ],
   templateUrl: './browser.component.html',
@@ -42,12 +43,13 @@ export class BrowserComponent {
   protected folderError = signal<string | null>(null);
 
   @ViewChild('filesInput', { static: true }) private filesInput!: ElementRef<HTMLInputElement>;
+  @ViewChild('folderInput', { static: true }) private folderInput!: ElementRef<HTMLInputElement>;
   @ViewChild(ToolbarComponent, { static: true }) private toolbar!: ToolbarComponent;
 
   constructor() {
     this.store.ui = {
       pickFiles: () => this.filesInput.nativeElement.click(),
-      pickFolder: () => undefined,
+      pickFolder: () => this.folderInput.nativeElement.click(),
       focusFilter: () => this.toolbar.focusFilter(),
     };
     this.store.init();

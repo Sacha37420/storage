@@ -17,11 +17,11 @@
       </button>
 
       <nav class="breadcrumb" aria-label="Chemin">
-        <a class="crumb" [routerLink]="store.linkTo('')"
+        <a class="crumb" [routerLink]="store.linkTo('')" [appFileDrop]="''"
            [attr.aria-current]="store.path() ? null : 'page'">{{ store.namespace() }}</a>
         @for (seg of store.breadcrumb(); track seg.path; let last = $last) {
           <app-icon class="sep" name="chevron" />
-          <a class="crumb" [routerLink]="store.linkTo(seg.path)"
+          <a class="crumb" [routerLink]="store.linkTo(seg.path)" [appFileDrop]="seg.path"
              [attr.aria-current]="last ? 'page' : null">{{ seg.name }}</a>
         }
       </nav>
@@ -59,6 +59,7 @@
 
   <!-- Sélecteurs natifs, déclenchés par les actions « Téléverser… » -->
   <input #filesInput type="file" multiple hidden data-test="files-input" (change)="onPicked(filesInput)" />
+  <input #folderInput type="file" webkitdirectory multiple hidden data-test="folder-input" (change)="onPicked(folderInput)" />
 
   <app-upload-panel />
 
