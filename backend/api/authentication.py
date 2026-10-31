@@ -57,6 +57,26 @@ class KeycloakServiceUser:
         return self.username
 
 
+# Méthodes de lecture pour lesquelles le jeton en paramètre d'URL est admis.
+_QUERY_TOKEN_METHODS = frozenset({'GET', 'HEAD'})
+
+
+def _query_token_allowed(request) -> bool:
+    """Vrai seulement pour GET/HEAD sur /api/files/<ns>/content/<chemin>.
+
+    La route est reconnue par la vue que Django a résolue (FileContentView),
+    pas par une comparaison de chaîne sur le chemin : la résolution se fait
+    sur `path_info`, donc après retrait du préfixe SCRIPT_NAME /
+    FORCE_SCRIPT_NAME, quel qu'il soit. Pas de résolution connue ⇒ refus.
+    """
+    if request.method not in _QUERY_TOKEN_METHODS:
+        return False
+    match = getattr(request, 'resolver_match', None)
+    view_class = getattr(getattr(match, 'func', None), 'view_class', None)
+    from .views import FileContentView  # import tardif : évite un import circulaire au chargement
+    return view_class is FileContentView
+
+
 class KeycloakJWTAuthentication(BaseAuthentication):
     """
     Validates Keycloak Bearer JWT tokens using the realm's JWKS endpoint.
@@ -102,6 +122,15 @@ class KeycloakJWTAuthentication(BaseAuthentication):
             # toutes rester lisibles en <img>/GLTFLoader (tout /api/files/.../
             # content/...), dupliquer la classe aurait un jour fini par
             # oublier azp ou groups sur l'une d'elles.
+            #
+            # Restreint (chantier « urgences », interface I1) : ce repli ne vaut
+            # QUE pour une lecture (GET/HEAD) de la route de contenu. Ailleurs —
+            # écriture, suppression, partages, /api/me/ — le paramètre est
+            # ignoré comme s'il n'existait pas : un jeton qui a fuité par une
+            # URL (historique, journal d'un proxy, en-tête Referer) ne permet
+            # plus que de relire un fichier, jamais d'agir.
+            if not _query_token_allowed(request):
+                return None
             token = request.GET.get('token', '')
             if not token:
                 return None
