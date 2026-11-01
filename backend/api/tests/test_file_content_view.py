@@ -4,7 +4,7 @@ contrôles d'accès de la vue.
 Les jetons sont de vrais JWT RS256 signés par une clé générée ici ; seul le
 client JWKS (appel réseau vers Keycloak) est remplacé. Tout le reste de
 KeycloakJWTAuthentication s'exécute réellement : signature, expiration, azp,
-groupes, courriel, compte de service, repli ?token=.
+groupes, courriel, compte de service, refus de ?token=.
 """
 import shutil
 import tempfile
@@ -175,11 +175,13 @@ class ContentHeadersTests(_Base):
         r = self.serve('photo.png', PNG, 'image/png')
         self.assertEqual(r['Content-Disposition'], 'inline; filename="photo.png"')
 
-    def test_meme_politique_par_le_repli_token(self):
+    def test_jeton_en_parametre_ne_sert_plus_rien(self):
+        # Le repli ?token= est retiré (chantier « failles », I4) : même un
+        # jeton valide en paramètre ne donne pas accès au contenu.
         self.put('alice', 'p.html', HTML, 'text/html')
         r = self.get('alice', 'p.html', query_token=make_token())
-        self.assertEqual(r.status_code, 200)
-        self.assert_attachment_octet_stream(r)
+        self.assertIn(r.status_code, (401, 403))
+        self.assertNotIn(HTML, r.content)
 
     def test_erreur_404_reste_du_json(self):
         r = self.get('alice', 'absent.html', make_token())
@@ -233,7 +235,8 @@ class ContentAccessTests(_Base):
     def test_espace_personnel_d_un_autre(self):
         # L'espace personnel d'autrui n'est pas un partage : introuvable.
         self.assertEqual(self.get('alice', 'a.png', make_token('bob')).status_code, 404)
-        self.assertEqual(self.get('alice', 'a.png', query_token=make_token('bob')).status_code, 404)
+        # Jeton en paramètre : refusé avant même la recherche du fichier.
+        self.assertIn(self.get('alice', 'a.png', query_token=make_token('bob')).status_code, (401, 403))
 
     def test_partage_non_membre(self):
         self.assertEqual(self.get('photos', 's.png', make_token('bob')).status_code, 403)

@@ -1,10 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpEvent, HttpRequest } from '@angular/common/http';
 import { Observable } from 'rxjs';
-
-interface EnvWindow {
-  __env?: { apiUrl?: string; maxUploadBytes?: number };
-}
+import { apiUrl, labEnv } from './env';
 
 /** Limite par défaut du backend (MAX_UPLOAD_BYTES), si env.js ne la donne pas. */
 const DEFAULT_MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
@@ -81,13 +78,12 @@ export class ApiService {
   private http = inject(HttpClient);
 
   private get base(): string {
-    return (window as unknown as EnvWindow).__env?.apiUrl
-      ?? 'http://localhost:8093';
+    return apiUrl();
   }
 
   /** Taille maximale d'un fichier, connue avant l'envoi pour refuser tout de suite. */
   get maxUploadBytes(): number {
-    const v = Number((window as unknown as EnvWindow).__env?.maxUploadBytes);
+    const v = Number(labEnv().maxUploadBytes);
     return Number.isFinite(v) && v > 0 ? v : DEFAULT_MAX_UPLOAD_BYTES;
   }
 

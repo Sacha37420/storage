@@ -26,26 +26,30 @@ contextuel, suppression annulable, glisser-déposer, file d'envoi, conflits de n
 - [x] `LAB_ROOT=$PWD bash storage/frontend/e2e/jouer-gestes.sh --deploye` : 25 gestes
 **Vérifié le :** 2026-10-11 (gestes rejoués contre le déployé, cloisonnement 3/3) ; relevé le 2026-10-31 : version en service = `c35f0dd`.
 
-## Lot 2 — `?token=` limité à la lecture de contenu   ·   statut : en cours
-**Objectif :** un jeton en paramètre d'URL ne permet plus que de lire un fichier (chantier T4).
+## Lot 2 — `?token=` retiré, gabarit front et ports   ·   statut : en cours
+**Objectif :** un jeton en paramètre d'URL ne permet plus rien (chantier T4, puis chantier failles I4 : le repli est supprimé).
 **Constat [C] :** `?token=` est accepté sur toutes les routes et toutes les méthodes, partages
 compris (`api/authentication.py:105`). Les trois frontends qui s'en servent (arbre-genealogique,
 atelier-3d, craft-lab) n'en ont besoin que pour `GET …/content/`.
 **Tâches :**
 - [x] N'accepter `?token=` que pour `GET`/`HEAD` sur la route de contenu (`_query_token_allowed`,
   `api/authentication.py` : la vue résolue doit être `FileContentView`, donc indépendant du préfixe
-  `SCRIPT_NAME`) ; ailleurs le paramètre est ignoré, l'en-tête Bearer reste lu partout
+  `SCRIPT_NAME`) ; ailleurs le paramètre est ignoré, l'en-tête Bearer reste lu partout — dépassé le 2026-11-01
+- [x] Chantier failles, I4 : `?token=` n'est plus lu nulle part (`_query_token_allowed` et le repli retirés de `api/authentication.py`) ; seul l'en-tête Bearer reste. **À déployer après** arbre-genealogique, atelier-3d et craft-lab (secteur C)
+- [x] Gabarit front (I2) : `tokenBases()`, PKCE, `loginRedirectUri` ; specs `token-scope`/`redirect-uri` sous vitest ; ports liés à `${LAB_BIND_ADDR:-127.0.0.1}` (I1)
 **Tests à passer avant de clore le lot :**
 - [x] `POST`, `DELETE` et `GET /api/shares/` avec `?token=` → refus (403, le refus habituel de
   cette API sans en-tête) ; aussi `POST /api/shares/`, `GET /api/me/`, liste `/api/files/<ns>/`,
   `DELETE …/content/…` ; `GET` et `HEAD …/content/…?token=` acceptés ; mauvais `azp` ou groupe
-  refusé en `?token=` ; Bearer accepté sur toutes les routes (`api/tests/test_query_token.py`, 16 tests)
+  refusé en `?token=` ; Bearer accepté sur toutes les routes (`api/tests/test_query_token.py`, 16 tests) — remplacé :
+- [x] `?token=` refusé partout, `GET` et `HEAD …/content/…` compris, quel que soit le jeton ; Bearer accepté partout ; un `?token=` à côté d'un Bearer ne change rien (`api/tests/test_query_token.py`, 17 tests)
 - [ ] Images d'atelier-3d, craft-lab et arbre-genealogique vérifiées en navigateur réel
 **Vérifié le :** 2026-10-31 — `ESSAI_CMD='python manage.py test --settings=config.settings_test api'
 bash chantiers/tests/essai.sh storage` : 65 tests OK (49 existants + 16). Même suite avec la
 restriction neutralisée : 8 échecs, tous dans `test_query_token` (l'écart est bien détecté).
 Consommateurs revérifiés par grep : les trois `mediaUrl`/`iconUrl` ne visent que
 `/api/files/<ns>/content/<chemin>`. Navigateur réel : à faire après déploiement.
+2026-11-01 — non déployé. Même commande : 66 tests OK ; avec l'`authentication.py` d'avant, 7 échecs (les refus de `?token=` sur le contenu). `vitest` : 88 tests OK ; image `storage-frontend:candidat` construite ; `docker compose config` : `host_ip: 127.0.0.1`. Grep `dev/` et `dev2/` : plus aucun `?token=` vers storage hors des trois apps du secteur C (corrigées, non déployées).
 
 ## Lot 3 — Tests de contrat de l'API existante   ·   statut : à faire
 **Objectif :** figer ce dont dépendent les neuf consommateurs, avant tout changement d'interface.

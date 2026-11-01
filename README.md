@@ -242,17 +242,14 @@ Commandes de gestion, à lancer dans le conteneur (`docker exec storage-backend 
 
 ## 5. Le jeton dans l'adresse (`?token=`)
 
-Le même JWT est accepté en paramètre `?token=` quand l'en-tête `Authorization` est absent, avec
-exactement les mêmes contrôles. Il existe parce qu'une balise `<img>` et le chargeur interne de
-`GLTFLoader` ne peuvent pas poser d'en-tête.
+**N'est plus accepté** (chantier « failles », 2026-11). Le seul jeton lu est celui de l'en-tête
+`Authorization: Bearer`, sur toutes les routes ; un paramètre `?token=` est ignoré, la requête est
+traitée comme anonyme (401/403), même si le jeton est valide. Un jeton dans une adresse se retrouve
+dans l'historique, les journaux et tout lien copié.
 
-S'en servent aujourd'hui, dans leur frontend : `atelier-3d` (photos, maillages, lien de
-téléchargement), `craft-lab` (icônes), `arbre-genealogique` (photos).
-
-**Ce n'est pas la voie à prendre pour du nouveau code.** Un jeton dans une adresse se retrouve dans
-l'historique, les journaux et tout lien copié. Préférer un `fetch` avec en-tête `Authorization`,
-puis `URL.createObjectURL` pour une image ; `GLTFLoader.setRequestHeader` pour un modèle. Le
-paramètre est conservé tant que ces trois apps en dépendent.
+Pour afficher une image ou charger un modèle depuis un frontend : requête avec en-tête
+`Authorization` (`HttpClient` en `responseType: 'blob'`, ou `fetch`), puis `URL.createObjectURL`,
+révoqué à la destruction du composant ; `GLTFLoader.setRequestHeader` pour un modèle 3D.
 
 ---
 

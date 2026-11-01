@@ -57,26 +57,6 @@ class KeycloakServiceUser:
         return self.username
 
 
-# Méthodes de lecture pour lesquelles le jeton en paramètre d'URL est admis.
-_QUERY_TOKEN_METHODS = frozenset({'GET', 'HEAD'})
-
-
-def _query_token_allowed(request) -> bool:
-    """Vrai seulement pour GET/HEAD sur /api/files/<ns>/content/<chemin>.
-
-    La route est reconnue par la vue que Django a résolue (FileContentView),
-    pas par une comparaison de chaîne sur le chemin : la résolution se fait
-    sur `path_info`, donc après retrait du préfixe SCRIPT_NAME /
-    FORCE_SCRIPT_NAME, quel qu'il soit. Pas de résolution connue ⇒ refus.
-    """
-    if request.method not in _QUERY_TOKEN_METHODS:
-        return False
-    match = getattr(request, 'resolver_match', None)
-    view_class = getattr(getattr(match, 'func', None), 'view_class', None)
-    from .views import FileContentView  # import tardif : évite un import circulaire au chargement
-    return view_class is FileContentView
-
-
 class KeycloakJWTAuthentication(BaseAuthentication):
     """
     Validates Keycloak Bearer JWT tokens using the realm's JWKS endpoint.
@@ -98,42 +78,18 @@ class KeycloakJWTAuthentication(BaseAuthentication):
         return cls._jwks_client
 
     def authenticate(self, request):
+        # Le jeton ne vient QUE de l'en-tête `Authorization: Bearer`, sur toutes
+        # les routes. Le repli `?token=` (lecture de contenu par <img src>,
+        # GLTFLoader…) est retiré (chantier « failles », interface I4) : un
+        # jeton en paramètre d'URL fuit par l'historique, les journaux d'un
+        # proxy et l'en-tête Referer. Les frontends chargent désormais les
+        # fichiers par HttpClient (jeton dans l'en-tête) puis un Blob. Un
+        # paramètre `token` éventuel est ignoré : la requête est traitée comme
+        # anonyme.
         auth_header = request.headers.get('Authorization', '')
-        if auth_header.startswith('Bearer '):
-            token = auth_header[7:]
-        else:
-            # Ni une balise <img src="…"> ni le fetch() interne d'un GLTFLoader
-            # ne peuvent poser d'en-tête Authorization — sans ce fallback,
-            # aucun média servi par storage ne pourrait être affiché en accès
-            # direct depuis le frontend d'une autre app (objectif « accès
-            # direct frontend → storage », cf. .claude/plans/
-            # sharing-model-orchestration.md). Le même JWT Keycloak est alors
-            # accepté en ?token=, et repasse PAR EXACTEMENT LES MÊMES contrôles
-            # ci-dessous (signature JWKS, expiration, azp de confiance,
-            # groupes) — seul l'emplacement du jeton change, jamais la
-            # politique. Même pattern que atelier-3d/arbre-genealogique
-            # (api/authentication.py et api/auth_extra.py respectivement) ;
-            # contrairement à arbre-genealogique, qui isole ce fallback dans
-            # une classe d'authentification séparée réutilisée sur une seule
-            # vue (et qui, ce faisant, avait ré-implémenté le décodage JWT
-            # SANS le contrôle azp/groupes — un point de divergence à ne pas
-            # reproduire ici), on l'intègre directement dans l'unique classe
-            # d'auth de storage : cette API a plusieurs vues qui doivent
-            # toutes rester lisibles en <img>/GLTFLoader (tout /api/files/.../
-            # content/...), dupliquer la classe aurait un jour fini par
-            # oublier azp ou groups sur l'une d'elles.
-            #
-            # Restreint (chantier « urgences », interface I1) : ce repli ne vaut
-            # QUE pour une lecture (GET/HEAD) de la route de contenu. Ailleurs —
-            # écriture, suppression, partages, /api/me/ — le paramètre est
-            # ignoré comme s'il n'existait pas : un jeton qui a fuité par une
-            # URL (historique, journal d'un proxy, en-tête Referer) ne permet
-            # plus que de relire un fichier, jamais d'agir.
-            if not _query_token_allowed(request):
-                return None
-            token = request.GET.get('token', '')
-            if not token:
-                return None
+        if not auth_header.startswith('Bearer '):
+            return None
+        token = auth_header[7:]
 
         try:
             client = self._get_jwks_client()

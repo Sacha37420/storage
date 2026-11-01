@@ -3,9 +3,11 @@ droit d'en faire.
 
 Pourquoi ce module existe (faille constatée le 2026-10-11) : la vue de contenu
 renvoyait le `content_type` fourni par le déposant, en `inline`, sans
-`nosniff` ni CSP. Avec le repli `?token=`, l'adresse d'un fichier s'ouvre par
-simple navigation : un `.html` déposé s'exécutait sur l'origine du lab, que
-toutes les apps partagent.
+`nosniff` ni CSP. Avec le repli `?token=` d'alors (retiré depuis, chantier
+« failles »), l'adresse d'un fichier s'ouvrait par simple navigation : un
+`.html` déposé s'exécutait sur l'origine du lab, que toutes les apps
+partagent. Sans ce repli, le risque demeure par les proxys et les `Blob`
+(ci-dessous) : ces règles restent nécessaires.
 
 Règle : **le type déclaré par le déposant ne décide de rien par lui-même.** Il
 n'est jamais recopié tel quel dans la réponse ; il sert seulement de clé dans
