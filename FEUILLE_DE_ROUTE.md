@@ -43,7 +43,7 @@ atelier-3d, craft-lab) n'en ont besoin que pour `GET …/content/`.
   `DELETE …/content/…` ; `GET` et `HEAD …/content/…?token=` acceptés ; mauvais `azp` ou groupe
   refusé en `?token=` ; Bearer accepté sur toutes les routes (`api/tests/test_query_token.py`, 16 tests) — remplacé :
 - [x] `?token=` refusé partout, `GET` et `HEAD …/content/…` compris, quel que soit le jeton ; Bearer accepté partout ; un `?token=` à côté d'un Bearer ne change rien (`api/tests/test_query_token.py`, 17 tests)
-- [ ] Images d'atelier-3d, craft-lab et arbre-genealogique vérifiées en navigateur réel
+- [x] Images d'atelier-3d, craft-lab et arbre-genealogique vérifiées en navigateur réel ; Chromium du runner, photo d'un projet jetable, icônes du catalogue, média d'un arbre privé jetable — vérifié le 2026-11-01 (lab-runner, `e2e_member`)
 **Vérifié le :** 2026-10-31 — `ESSAI_CMD='python manage.py test --settings=config.settings_test api'
 bash chantiers/tests/essai.sh storage` : 65 tests OK (49 existants + 16). Même suite avec la
 restriction neutralisée : 8 échecs, tous dans `test_query_token` (l'écart est bien détecté).
