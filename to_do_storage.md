@@ -1,5 +1,7 @@
 # to_do_storage — rendre `storage` simple à utiliser et à modifier
 
+> **2026-11-08 — archive.** En-tête ci-dessous périmé : lots 0 à 2 en service depuis le 2026-10-11 ; la suite, corrigée par les décisions Q1 à Q6, est dans `FEUILLE_DE_ROUTE.md` (lots 3 à 9).
+
 Analyse du 2026-10-11. L'analyse n'a rien modifié dans le code ; seul le Lot 0 (sécurité) a été écrit
 ensuite, le même jour — voir la section qui suit.
 Convention de lecture : **[C]** = constaté (navigateur réel du lab avec le compte `e2edev`, ou lecture

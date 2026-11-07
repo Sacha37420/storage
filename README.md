@@ -24,7 +24,8 @@ Base interne (de conteneur à conteneur, réseau `dev-net`) : `http://storage-ba
 Base publique : `https://<domaine>/storage-api`. Les chemins ci-dessous s'ajoutent à l'une ou l'autre.
 
 Toute route exige un jeton Keycloak (section 3). Sans jeton valide : 401 ou 403.
-Schéma OpenAPI : `/api/schema/`, interface Swagger : `/api/docs/`.
+Schéma OpenAPI (`/api/schema/`) et interface Swagger (`/api/docs/`) : seulement en `DEBUG`
+(`backend/config/urls.py:28`) ; en service, 404. Ce README fait foi.
 
 **Adressage.** Un fichier est désigné par `(espace, chemin)`. L'espace est un nom d'utilisateur
 (espace personnel) ou un nom de partage. Le chemin est libre, avec `/` comme séparateur : ni `/` en
@@ -257,8 +258,10 @@ révoqué à la destruction du composant ; `GLTFLoader.setRequestHeader` pour un
 
 ### Tests
 
-Django, sans PostgreSQL ni réseau (SQLite en mémoire, `config/settings_test.py`). Depuis la racine
-du dépôt parent :
+Django, sans PostgreSQL ni réseau (SQLite en mémoire, `config/settings_test.py`). Le lab les joue
+avant toute mise en service (`scripts/app-test.sh`, commande de `FEUILLE_DE_ROUTE.md`). À la main,
+depuis la racine du dépôt parent, `ESSAI_CMD='python manage.py test --settings=config.settings_test api'
+bash chantiers/tests/essai.sh storage`, ou :
 
 ```bash
 docker run --rm --env-file storage/.env --network none \
@@ -266,9 +269,18 @@ docker run --rm --env-file storage/.env --network none \
   python manage.py test --settings=config.settings_test api
 ```
 
-Ils couvrent la politique de service du contenu et les contrôles d'accès de la route de contenu
-(`backend/api/tests/`). Les autres routes n'ont pas encore de tests. Le frontend n'a qu'un test de
-bout en bout, `frontend/e2e/cloisonnement.spec.ts`, lancé par le runner du lab.
+Ils couvrent la politique de service du contenu, les contrôles d'accès de la route de contenu et le
+refus de `?token=` sur toutes les routes (`backend/api/tests/`, 66 tests au dernier passage, le
+2026-11-01). Les autres routes (liste, dépôt, partages, membres, hiérarchie) n'ont pas encore de
+tests de contrat (lot 3 de `FEUILLE_DE_ROUTE.md`).
+
+Frontend :
+- tests unitaires sous vitest (`cd frontend && npm test` : `pages/browser/logic/*.spec.ts`,
+  `core/token-scope.spec.ts`, `core/redirect-uri.spec.ts`) ;
+- `frontend/e2e/cloisonnement.spec.ts`, joué par le moteur du lab après chaque déploiement ;
+- `frontend/e2e/gestes.spec.ts` (25 gestes en navigateur réel, compte `e2edev`), joué à la main
+  seulement : `LAB_ROOT=$PWD bash storage/frontend/e2e/jouer-gestes.sh --deploye` depuis la racine du
+  dépôt parent.
 
 ### Déploiement
 
@@ -277,8 +289,7 @@ l'image : toute modification demande une reconstruction. Les migrations sont app
 démarrage du conteneur. Le volume `infra_storage-media` et le réseau `dev-net` sont créés par
 `infra/`, pas par cette app.
 
-Le backend tourne aujourd'hui sous le serveur de développement de Django (`runserver`, cf.
-`backend/Dockerfile`).
+Le backend est servi par gunicorn (`backend/Dockerfile:9`, réglages dans `backend/gunicorn.conf.py`).
 
 ### Variables d'environnement
 
@@ -311,6 +322,9 @@ chaque nouvelle app.
 
 ## 7. Suite
 
-L'interface et l'API sont minimales : pas de sélection, de renommage, de déplacement, de corbeille
-ni d'aperçu. L'analyse, la cible et le plan par lots sont dans `to_do_storage.md`, à la racine du
-dépôt parent.
+L'interface a les gestes usuels livrés le 2026-10-11 (lots 0 à 2 de `to_do_storage.md`) :
+sélection, clavier, menu contextuel, suppression annulable, glisser-déposer, file d'envoi, conflits
+de nom. Restent absents : renommer, déplacer ou copier un fichier existant, dossiers vides, corbeille
+(abandonnée, décision Q1), aperçu, vignettes. Le plan est dans `FEUILLE_DE_ROUTE.md` (lots 3 et
+suivants) ; l'analyse d'origine et les décisions du propriétaire dans `to_do_storage.md`, dans ce
+dépôt.
