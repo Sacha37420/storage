@@ -26,7 +26,7 @@ contextuel, suppression annulable, glisser-déposer, file d'envoi, conflits de n
 - [x] `LAB_ROOT=$PWD bash storage/frontend/e2e/jouer-gestes.sh --deploye` : 25 gestes
 **Vérifié le :** 2026-10-11 (gestes rejoués contre le déployé, cloisonnement 3/3) ; relevé le 2026-10-31 : version en service = `c35f0dd`.
 
-## Lot 2 — `?token=` retiré, gabarit front et ports   ·   statut : en cours
+## Lot 2 — `?token=` retiré, gabarit front et ports   ·   statut : livré
 **Objectif :** un jeton en paramètre d'URL ne permet plus rien (chantier T4, puis chantier failles I4 : le repli est supprimé).
 **Constat [C] :** `?token=` est accepté sur toutes les routes et toutes les méthodes, partages
 compris (`api/authentication.py:105`). Les trois frontends qui s'en servent (arbre-genealogique,
@@ -50,6 +50,7 @@ restriction neutralisée : 8 échecs, tous dans `test_query_token` (l'écart est
 Consommateurs revérifiés par grep : les trois `mediaUrl`/`iconUrl` ne visent que
 `/api/files/<ns>/content/<chemin>`. Navigateur réel : à faire après déploiement.
 2026-11-01 — non déployé. Même commande : 66 tests OK ; avec l'`authentication.py` d'avant, 7 échecs (les refus de `?token=` sur le contenu). `vitest` : 88 tests OK ; image `storage-frontend:candidat` construite ; `docker compose config` : `host_ip: 127.0.0.1`. Grep `dev/` et `dev2/` : plus aucun `?token=` vers storage hors des trois apps du secteur C (corrigées, non déployées).
+Statut passé à « livré » le 2026-11-08 (relecture de nuit) : toutes les tâches et tous les tests cochés, images vérifiées en navigateur le 2026-11-01 (commit `2e4e95c`), mis en service le même jour (section « Mise en service » plus bas ; conteneurs `storage-*` créés le 2026-11-01 à 04 h 18).
 
 ## Lot 3 — Tests de contrat de l'API existante   ·   statut : à faire
 **Objectif :** figer ce dont dépendent les neuf consommateurs, avant tout changement d'interface.
@@ -67,13 +68,13 @@ Le README le dit lui-même (l. 270).
 - [ ] `bash chantiers/tests/essai.sh storage` vert ; une mutation provoquée dans une vue fait rougir la suite
 **Vérifié le :**
 
-## Lot 4 — Documentation pour les consommateurs   ·   statut : à faire
+## Lot 4 — Documentation pour les consommateurs   ·   statut : en cours
 **Objectif :** une app consommatrice trouve tout dans le README ; l'exemple de `.env` est juste.
 **Tâches :**
-- [ ] README : retirer le renvoi vers `/api/schema/` et `/api/docs/` (404 hors DEBUG, l. 27) ; « runserver » → gunicorn (l. 283) ; tests (l. 270) ; §7 (sélection et gestes livrés)
+- [x] README : retirer le renvoi vers `/api/schema/` et `/api/docs/` (404 hors DEBUG, l. 27) ; « runserver » → gunicorn (l. 283) ; tests (l. 270) ; §7 (sélection et gestes livrés) — fait le 2026-11-08 (travail de nuit, documentation seule)
 - [ ] Tableau des neuf consommateurs : voie (jeton transmis, compte de service, préfixe), partage ou préfixe, routes utilisées
 - [ ] `.env.example` : `KEYCLOAK_TRUSTED_CLIENTS` (8 clients en service, 2 dans l'exemple) ; tdfc, arbre et atelier sont passés de `SERVICE_WRITE_SHARES` à `SERVICE_WRITE_PREFIXES`
-- [ ] Mettre à jour l'en-tête de `to_do_storage.md`, et le texte de son lot 3 : corbeille et refus dans les partages d'app sont abandonnés (Q1, Q2)
+- [ ] Mettre à jour l'en-tête de `to_do_storage.md`, et le texte de son lot 3 : corbeille et refus dans les partages d'app sont abandonnés (Q1, Q2) — 2026-11-08 : une ligne d'en-tête datée ajoutée (renvoi ici) ; le texte du lot 3 n'est pas réécrit (archive)
 **Tests à passer avant de clore le lot :**
 - [ ] Les clés Keycloak de `.env` et de `.env.example` sont les mêmes (valeurs mises à part) ; relecture du tableau des consommateurs contre leur code
 **Vérifié le :**
@@ -116,7 +117,7 @@ liste des membres lisible par les membres.
 ## Lot 9 — Front et parcours restants   ·   statut : à faire
 **Objectif :** gabarit front aligné (T3), parcours jamais vérifiés.
 **Tâches :**
-- [ ] `tokenBases()` ; PKCE ; un seul volet latéral (fusion avec la nav Foyer)
+- [ ] ~~`tokenBases()` ; PKCE~~ (doublon : faits au lot 2, en service le 2026-11-01) ; un seul volet latéral (fusion avec la nav Foyer)
 - [ ] Ⓟ Parcours réels : glisser depuis le bureau, comportement dans un partage (lecture, écriture, groupe), tactile, lecteur d'écran
 - [ ] Lot 7 de `to_do_storage.md` (recherche, archive serveur, pagination) seulement si un besoin apparaît
 **Tests à passer avant de clore le lot :**
