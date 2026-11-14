@@ -28,6 +28,26 @@ class MeView(APIView):
         })
 
 
+def _reserved_for_service(name: str, user) -> bool:
+    """Ce nom revient-il à un compte de service (partage exact ou préfixe) ?
+
+    Un tel nom ne se prend pas en self-service : sinon un compte crée d'avance
+    le partage qu'un compte de service remplira ensuite (`get_or_create` de
+    `resolve_namespace` rend le partage existant), et son propriétaire lit et
+    partage tout ce que l'app y dépose. Le compte de service concerné, lui,
+    garde le droit de créer ses propres partages (atelier-3d,
+    arbre-genealogique, traitement-de-fichiers-compils le font par
+    `POST /api/shares/` avant le premier fichier).
+    """
+    for share_name in settings.KEYCLOAK_SERVICE_WRITE_SHARES.values():
+        if name == share_name and getattr(user, 'write_share', None) != share_name:
+            return True
+    for prefix in settings.KEYCLOAK_SERVICE_WRITE_PREFIXES.values():
+        if name.startswith(prefix) and getattr(user, 'write_prefix', None) != prefix:
+            return True
+    return False
+
+
 class ShareListCreateView(APIView):
     """
     GET  /api/shares/ — partages dont je suis propriétaire + dont je suis
@@ -66,6 +86,8 @@ class ShareListCreateView(APIView):
         # <namespace>/<chemin> ambigu.
         if name == request.user.username or KnownUser.objects.filter(username=name).exists():
             raise DRFValidationError({'name': ["Ce nom est déjà utilisé comme identifiant de compte."]})
+        if _reserved_for_service(name, request.user):
+            raise DRFValidationError({'name': ["Ce nom est réservé à une application du lab."]})
 
         share = Share(name=name, owner_username=request.user.username)
 
