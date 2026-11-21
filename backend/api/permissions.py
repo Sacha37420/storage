@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError as DRFValidationError
 
 from .models import Share, ShareMember
+from .validators import _SLUG_RE
 
 # Garde-fou défensif contre une remontée de chaîne parent trop longue (cycle
 # corrompu en base, jamais censé se produire puisque validate_new_parent
@@ -42,7 +43,9 @@ def resolve_namespace(namespace: str, user) -> NamespaceAccess:
         if namespace == user.write_share:
             share = Share.objects.filter(name=namespace).first()
             return NamespaceAccess(namespace=namespace, can_write=True, share=share)
-        if user.write_prefix and namespace.startswith(user.write_prefix):
+        # Le nom auto-créé passe la même validation qu'un nom saisi (slug, 64
+        # caractères au plus) : get_or_create n'appelle pas full_clean().
+        if user.write_prefix and namespace.startswith(user.write_prefix) and _SLUG_RE.match(namespace):
             share, _ = Share.objects.get_or_create(
                 name=namespace, defaults={'owner_username': user.username},
             )
@@ -50,6 +53,15 @@ def resolve_namespace(namespace: str, user) -> NamespaceAccess:
         raise PermissionDenied(f"Ce compte de service n'a pas accès à '{namespace}'.")
 
     if namespace == user.username:
+        # Les fichiers sont rangés par nom d'espace : un partage de même nom créé
+        # par un autre compte (avant la première connexion de celui-ci, ou un
+        # compte Keycloak nommé comme un partage existant) lirait tout l'espace
+        # personnel. Dans ce cas l'espace est refusé — jamais partagé en silence.
+        if Share.objects.filter(name=namespace).exclude(owner_username=user.username).exists():
+            raise PermissionDenied(
+                f"L'espace '{namespace}' est pris par un partage d'un autre compte : "
+                "demandez à un administrateur du lab."
+            )
         return NamespaceAccess(namespace=namespace, can_write=True, share=None)
 
     try:

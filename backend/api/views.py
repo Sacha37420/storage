@@ -28,6 +28,13 @@ class MeView(APIView):
         })
 
 
+def _reserved_for_caller(name: str, user) -> bool:
+    """Vrai si `name` est le partage ou sous le préfixe du compte de service appelant."""
+    if not getattr(user, 'is_service_account', False):
+        return False
+    return name == user.write_share or bool(user.write_prefix and name.startswith(user.write_prefix))
+
+
 class ShareListCreateView(APIView):
     """
     GET  /api/shares/ — partages dont je suis propriétaire + dont je suis
@@ -66,6 +73,15 @@ class ShareListCreateView(APIView):
         # <namespace>/<chemin> ambigu.
         if name == request.user.username or KnownUser.objects.filter(username=name).exists():
             raise DRFValidationError({'name': ["Ce nom est déjà utilisé comme identifiant de compte."]})
+
+        # Les noms promis à un compte de service (son partage, son préfixe) ne
+        # se prennent pas par self-service : le compte de service écrirait
+        # ensuite dans le partage d'un autre, qui en lirait tout le contenu.
+        if not _reserved_for_caller(name, request.user) and (
+            name in settings.KEYCLOAK_SERVICE_WRITE_SHARES.values()
+            or any(name.startswith(p) for p in settings.KEYCLOAK_SERVICE_WRITE_PREFIXES.values() if p)
+        ):
+            raise DRFValidationError({'name': ["Ce nom est réservé à une app du lab."]})
 
         share = Share(name=name, owner_username=request.user.username)
 
