@@ -100,6 +100,9 @@ class KeycloakJWTAuthentication(BaseAuthentication):
                 algorithms=['RS256'],
                 options={
                     'verify_exp': True,
+                    # verify_exp seul ne contrôle que si le claim est présent :
+                    # un jeton sans `exp` serait valable pour toujours.
+                    'require': ['exp'],
                     # Audience varies by Keycloak client configuration
                     'verify_aud': False,
                 },
@@ -127,7 +130,9 @@ class KeycloakJWTAuthentication(BaseAuthentication):
         # tout en conservant la même propriété de sécurité : 'admin-cli' n'y
         # figure jamais. Voir storage/.env pour l'ajout d'un nouveau client.
         azp = claims.get('azp')
-        if azp not in settings.KEYCLOAK_TRUSTED_CLIENTS:
+        # admin-cli (public, password grant) n'est jamais de confiance, même
+        # ajouté par erreur à l'une des listes du .env.
+        if azp == 'admin-cli' or azp not in settings.KEYCLOAK_TRUSTED_CLIENTS:
             raise AuthenticationFailed(
                 f"Ce token a été émis par un client non autorisé : '{azp}'."
             )
@@ -164,6 +169,9 @@ class KeycloakJWTAuthentication(BaseAuthentication):
         # Alimente le registre des comptes connus à chaque requête authentifiée
         # (pas seulement /api/me/) : c'est ce qui permet à la création d'un
         # partage de détecter une collision avec un username, cf. views.py.
+        # Un compte dont l'email a changé garde son username (unique) : l'ancienne
+        # ligne est retirée d'abord, sinon chaque requête finit en erreur 500.
+        KnownUser.objects.filter(username=user.username).exclude(email=user.email).delete()
         KnownUser.objects.update_or_create(
             email=user.email, defaults={'username': user.username},
         )

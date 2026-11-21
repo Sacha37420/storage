@@ -20,7 +20,9 @@ def validate_relative_path(value: str) -> None:
     """Valide un chemin logique <namespace>/<relative_path> — jamais utilisé
     tel quel comme chemin filesystem (voir StoredFile.content), mais doit
     rester un identifiant sans ambiguïté (pas de '..', pas de segment vide)."""
-    if not value or value != value.strip():
+    # 1024 : longueur de StoredFile.relative_path ; PostgreSQL refuse le
+    # caractère NUL. Sans ces deux contrôles, l'enregistrement finit en 500.
+    if not value or value != value.strip() or len(value) > 1024 or '\x00' in value:
         raise ValidationError("Chemin invalide.")
     if value.startswith('/') or value.endswith('/'):
         raise ValidationError("Le chemin ne doit pas commencer ou finir par '/'.")
